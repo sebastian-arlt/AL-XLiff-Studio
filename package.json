@@ -1,0 +1,135 @@
+{
+  "name": "bc-xliff-language-map",
+  "displayName": "BC XLIFF Language Map",
+  "description": "Translation-memory .lng files, XLIFF repair and VS Code AI fallback for Microsoft Dynamics 365 Business Central AL apps.",
+  "version": "1.0.8",
+  "publisher": "sebastian-tools",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.97.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "Business Central",
+    "AL",
+    "XLIFF",
+    "translation",
+    "localization",
+    "Copilot"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onCommand:bcXliffLanguageMap.buildMaps",
+    "onCommand:bcXliffLanguageMap.fillMissing",
+    "onCommand:bcXliffLanguageMap.fillMissingCurrent",
+    "onCommand:bcXliffLanguageMap.selectAiModel",
+    "onCustomEditor:bcXliffLanguageMap.lngEditor"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "bcXliffLanguageMap.buildMaps",
+        "title": "BC XLIFF: Build/Update Language Maps"
+      },
+      {
+        "command": "bcXliffLanguageMap.fillMissing",
+        "title": "BC XLIFF: Fill Missing Translations"
+      },
+      {
+        "command": "bcXliffLanguageMap.fillMissingCurrent",
+        "title": "BC XLIFF: Fill Missing Translations in Current File"
+      },
+      {
+        "command": "bcXliffLanguageMap.selectAiModel",
+        "title": "BC XLIFF: Select Translation AI Model"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "bcXliffLanguageMap.fillMissingCurrent",
+          "when": "resourceExtname == .xlf",
+          "group": "navigation@50"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "bcXliffLanguageMap.fillMissingCurrent",
+          "when": "resourceExtname == .xlf",
+          "group": "navigation@50"
+        }
+      ]
+    },
+    "customEditors": [
+      {
+        "viewType": "bcXliffLanguageMap.lngEditor",
+        "displayName": "BC Language Map Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.*-*.lng"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "configuration": {
+      "title": "BC XLIFF Language Map",
+      "properties": {
+        "bcXliffLanguageMap.xliffGlob": {
+          "type": "string",
+          "default": "**/Translations/*.xlf",
+          "description": "Glob used to find translation XLIFF files."
+        },
+        "bcXliffLanguageMap.excludeGlob": {
+          "type": "string",
+          "default": "**/*.g.xlf",
+          "description": "Glob excluded from XLIFF processing. The generated .g.xlf should normally stay excluded."
+        },
+        "bcXliffLanguageMap.treatNeedsTranslationAsMissing": {
+          "type": "boolean",
+          "default": true,
+          "description": "Treat XLIFF targets with states such as needs-translation/needs-review/new as missing."
+        },
+        "bcXliffLanguageMap.setTranslatedState": {
+          "type": "boolean",
+          "default": true,
+          "description": "Set filled target elements to state=translated."
+        },
+        "bcXliffLanguageMap.ai.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use a VS Code language model only after no Developer-comment translation and no companion .lng match was found."
+        },
+        "bcXliffLanguageMap.ai.vendor": {
+          "type": "string",
+          "default": "copilot",
+          "description": "Preferred VS Code language-model vendor. Leave empty to allow any vendor."
+        },
+        "bcXliffLanguageMap.ai.family": {
+          "type": "string",
+          "default": "",
+          "description": "Optional preferred model family."
+        },
+        "bcXliffLanguageMap.ai.modelId": {
+          "type": "string",
+          "default": "",
+          "description": "Optional exact model id. Use the Select Translation AI Model command to set it."
+        },
+        "bcXliffLanguageMap.ai.batchSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 20,
+          "description": "Number of source strings per AI translation request."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,402 @@
+'use strict';
+
+const vscode = require('vscode');
+const path = require('path');
+const { parseLng, serializeLng, mergeEntries, entriesToMap } = require('./src/lng');
+const { parseXliff, translatedPairs, isMissingTranslation, updateMissingTranslations } = require('./src/xliff');
+const { translateItems, chooseAiModelCommand } = require('./src/ai');
+const { LanguageMapEditorProvider } = require('./src/editor');
+const { resolveKnownTranslationForUnit } = require('./src/resolver');
+
+function activate(context) {
+    context.subscriptions.push(
+        LanguageMapEditorProvider.register(context),
+        vscode.commands.registerCommand('bcXliffLanguageMap.buildMaps', () => buildMaps()),
+        vscode.commands.registerCommand('bcXliffLanguageMap.fillMissing', () => fillMissingTranslations()),
+        vscode.commands.registerCommand('bcXliffLanguageMap.fillMissingCurrent', uri => fillMissingTranslations(uri)),
+        vscode.commands.registerCommand('bcXliffLanguageMap.selectAiModel', () => chooseAiModelCommand())
+    );
+}
+
+async function findTranslationFiles(singleUri) {
+    if (singleUri && singleUri.fsPath && singleUri.fsPath.toLowerCase().endsWith('.xlf')) {
+        if (singleUri.fsPath.toLowerCase().endsWith('.g.xlf')) return [];
+        return [singleUri];
+    }
+    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+    const include = config.get('xliffGlob', '**/Translations/*.xlf');
+    const exclude = config.get('excludeGlob', '**/*.g.xlf');
+    return vscode.workspace.findFiles(include, exclude);
+}
+
+async function buildMaps(singleUri) {
+    const files = await findTranslationFiles(singleUri);
+    if (!files.length) {
+        vscode.window.showInformationMessage('BC XLIFF Language Map: no translation XLIFF files found.');
+        return;
+    }
+
+    let createdOrUpdated = 0;
+    let pairCount = 0;
+    let conflictCount = 0;
+
+    await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: 'BC XLIFF Language Map: building language maps',
+        cancellable: true
+    }, async (progress, token) => {
+        for (let i = 0; i < files.length; i++) {
+            if (token.isCancellationRequested) break;
+            const uri = files[i];
+            progress.report({ message: path.basename(uri.fsPath), increment: 100 / files.length });
+            const xlfText = await readText(uri);
+            const parsed = parseXliff(xlfText);
+            const language = parsed.targetLanguage || inferLanguageFromFilename(uri.fsPath);
+            if (!language) continue;
+
+            const pairs = translatedPairs(parsed, { treatNeedsTranslationAsMissing: true });
+            const mapUri = getMapUri(uri, language);
+            const existing = await readLngIfExists(mapUri);
+            const merged = mergeEntries(existing.entries, pairs.entries, { overwrite: true });
+            await writeText(mapUri, serializeLng(merged.entries, language));
+            createdOrUpdated++;
+            pairCount += pairs.entries.length;
+            conflictCount += pairs.conflicts.length + merged.conflicts.length;
+        }
+    });
+
+    const suffix = conflictCount ? ` ${conflictCount} conflicting duplicate source value(s) were detected.` : '';
+    vscode.window.showInformationMessage(`BC XLIFF Language Map: ${createdOrUpdated} map file(s) updated from ${pairCount} translated source pair(s).${suffix}`);
+}
+
+async function fillMissingTranslations(singleUri) {
+    const files = await findTranslationFiles(singleUri);
+    if (!files.length) {
+        vscode.window.showInformationMessage('BC XLIFF Language Map: no translation XLIFF files found.');
+        return;
+    }
+
+    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+    const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
+    const setTranslatedState = config.get('setTranslatedState', true);
+
+    let mapHits = 0;
+    let commentHits = 0;
+    let aiHits = 0;
+    let stillMissing = 0;
+    const changedFileKeys = new Set();
+    const commentConflictKeys = new Set();
+    const mapConflictKeys = new Set();
+    const workItems = [];
+
+    // Phase 1 is strictly deterministic and is completed before AI is even
+    // considered: Developer comment -> companion .lng. These translations are
+    // written first. Only the trans-units that are still missing afterwards
+    // are allowed to contribute to the AI prompt/count.
+    const deterministicCancelled = await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: 'BC XLIFF Language Map: applying comments and language maps',
+        cancellable: true
+    }, async (progress, token) => {
+        for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
+            if (token.isCancellationRequested) return true;
+            const uri = files[fileIndex];
+            progress.report({ message: path.basename(uri.fsPath), increment: 100 / files.length });
+
+            const originalText = await readText(uri);
+            const parsed = parseXliff(originalText);
+            const language = parsed.targetLanguage || inferLanguageFromFilename(uri.fsPath);
+            if (!language) continue;
+
+            const mapUri = getMapUri(uri, language);
+            const existingMap = await readLngIfExists(mapUri);
+
+            // Keep the companion map current with already translated XLIFF
+            // entries before using it as lookup memory in this same run.
+            const currentPairs = translatedPairs(parsed, { treatNeedsTranslationAsMissing });
+            const seeded = mergeEntries(existingMap.entries, currentPairs.entries, { overwrite: true });
+            const companionMap = entriesToMap(seeded.entries);
+            const missingUnits = parsed.units.filter(unit => isMissingTranslation(unit, treatNeedsTranslationAsMissing));
+
+            const unitsBySource = groupUnitsBySource(missingUnits);
+            const translationByOrdinal = new Map();
+            const sourceCandidates = new Map();
+
+            for (const [source, units] of unitsBySource) {
+                for (const unit of units) {
+                    // Fixed priority for this exact trans-unit:
+                    // 1. Developer comment
+                    // 2. companion .lng
+                    // AI is intentionally not part of this phase.
+                    const resolved = resolveKnownTranslationForUnit(unit, units, language, companionMap);
+                    if (resolved.commentConflict) {
+                        commentConflictKeys.add(`${uri.toString()}\u0000${source}`);
+                    }
+
+                    if (!resolved.translation) continue;
+
+                    translationByOrdinal.set(unit.ordinal, resolved.translation);
+                    addSourceCandidate(sourceCandidates, source, resolved.translation);
+                    if (resolved.source === 'comment') commentHits++;
+                    if (resolved.source === 'map') mapHits++;
+                }
+            }
+
+            // Write all deterministic XLIFF results before deciding whether AI
+            // is necessary. This is what makes the later AI count a true
+            // remainder instead of an estimate made before local lookup work.
+            const deterministicUpdate = updateMissingTranslations(originalText, new Map(), {
+                treatNeedsTranslationAsMissing,
+                setTranslatedState,
+                translationByOrdinal
+            });
+            const deterministicText = deterministicUpdate.text;
+            if (deterministicUpdate.updatedCount > 0) {
+                await writeText(uri, deterministicText);
+                changedFileKeys.add(uri.toString());
+            }
+
+            const deterministicAdditions = collectUnambiguousMapAdditions(
+                sourceCandidates,
+                uri,
+                mapConflictKeys
+            );
+            const mapMerged = mergeEntries(seeded.entries, deterministicAdditions, { overwrite: true });
+            await writeText(mapUri, serializeLng(mapMerged.entries, language));
+
+            // Reparse the already-updated XLIFF and derive the AI work only
+            // from what is *still* missing now. Comment/.lng hits can therefore
+            // never appear in the AI confirmation count.
+            const afterDeterministic = parseXliff(deterministicText);
+            const remainingUnits = afterDeterministic.units.filter(unit =>
+                isMissingTranslation(unit, treatNeedsTranslationAsMissing)
+            );
+            const unresolvedBySource = groupUnitsBySource(remainingUnits);
+            const aiItems = [...unresolvedBySource.entries()].map(([source, units]) => ({
+                key: units[0].id || source,
+                source,
+                context: units
+                    .flatMap(unit => unit.notes || [])
+                    .filter((value, index, values) => value && values.indexOf(value) === index)
+                    .join(' | ')
+            }));
+
+            workItems.push({
+                uri,
+                currentText: deterministicText,
+                parsed: afterDeterministic,
+                language,
+                mapUri,
+                mapEntries: mapMerged.entries,
+                unresolvedBySource,
+                aiItems
+            });
+        }
+        return false;
+    });
+
+    if (deterministicCancelled) return;
+
+    const aiPendingCount = workItems.reduce((sum, item) => sum + item.aiItems.length, 0);
+    const aiEnabled = config.get('ai.enabled', true) !== false;
+    let useAi = false;
+
+    // The confirmation is deliberately lazy: it is shown only when the fixed
+    // priority chain has actually reached AI for at least one remaining text.
+    if (aiEnabled && aiPendingCount > 0) {
+        const choice = await vscode.window.showWarningMessage(
+            `${aiPendingCount} open translation${aiPendingCount === 1 ? '' : 's'}`,
+            { modal: true },
+            'Use AI',
+            'Continue without AI'
+        );
+        useAi = choice === 'Use AI';
+    }
+
+    if (useAi) {
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'BC XLIFF Language Map: translating with AI',
+            cancellable: true
+        }, async (progress, token) => {
+            let aiCompleted = 0;
+            progress.report({ message: `0 / ${aiPendingCount}` });
+
+            for (const work of workItems) {
+                if (token.isCancellationRequested) break;
+                if (!work.aiItems.length) continue;
+
+                try {
+                    let fileAiCompleted = 0;
+                    const aiTranslations = await translateItems(
+                        work.aiItems,
+                        work.parsed.sourceLanguage,
+                        work.language,
+                        token,
+                        completed => {
+                            const delta = Math.max(0, completed - fileAiCompleted);
+                            fileAiCompleted = completed;
+                            aiCompleted += delta;
+                            progress.report({
+                                message: `${Math.min(aiCompleted, aiPendingCount)} / ${aiPendingCount}`,
+                                increment: aiPendingCount > 0 ? (delta * 100) / aiPendingCount : 0
+                            });
+                        }
+                    );
+
+                    const aiTranslationByOrdinal = new Map();
+                    const aiSourceCandidates = new Map();
+                    for (const [source, translation] of aiTranslations) {
+                        const units = work.unresolvedBySource.get(source) || [];
+                        for (const unit of units) {
+                            aiTranslationByOrdinal.set(unit.ordinal, translation);
+                        }
+                        if (units.length) {
+                            addSourceCandidate(aiSourceCandidates, source, translation);
+                            aiHits++;
+                        }
+                    }
+
+                    const aiUpdate = updateMissingTranslations(work.currentText, new Map(), {
+                        treatNeedsTranslationAsMissing,
+                        setTranslatedState,
+                        translationByOrdinal: aiTranslationByOrdinal
+                    });
+                    if (aiUpdate.updatedCount > 0) {
+                        work.currentText = aiUpdate.text;
+                        await writeText(work.uri, work.currentText);
+                        changedFileKeys.add(work.uri.toString());
+                    }
+
+                    const aiAdditions = collectUnambiguousMapAdditions(
+                        aiSourceCandidates,
+                        work.uri,
+                        mapConflictKeys
+                    );
+                    if (aiAdditions.length) {
+                        const mapMerged = mergeEntries(work.mapEntries, aiAdditions, { overwrite: true });
+                        work.mapEntries = mapMerged.entries;
+                        await writeText(work.mapUri, serializeLng(work.mapEntries, work.language));
+                    }
+                } catch (err) {
+                    const choice = await vscode.window.showWarningMessage(
+                        `BC XLIFF Language Map: AI fallback failed for ${path.basename(work.uri.fsPath)}: ${formatError(err)}`,
+                        'Continue without AI',
+                        'Cancel'
+                    );
+                    if (choice === 'Cancel') return;
+                    // Stop additional AI work after a failure, while keeping all
+                    // deterministic translations that were already written.
+                    break;
+                }
+            }
+        });
+    }
+
+    for (const work of workItems) {
+        const finalParsed = parseXliff(work.currentText);
+        stillMissing += finalParsed.units.filter(unit =>
+            isMissingTranslation(unit, treatNeedsTranslationAsMissing)
+        ).length;
+    }
+
+    const aiStatus = aiPendingCount > 0 && (!aiEnabled || !useAi) && aiHits === 0
+        ? ' AI was not used.'
+        : '';
+    const commentConflictText = commentConflictKeys.size
+        ? ` ${commentConflictKeys.size} source(s) had conflicting Developer comments; an exact trans-unit comment still took precedence where available.`
+        : '';
+    const mapConflictText = mapConflictKeys.size
+        ? ` ${mapConflictKeys.size} source(s) had context-specific translations and were therefore not collapsed into a single .lng entry.`
+        : '';
+
+    vscode.window.showInformationMessage(
+        `BC XLIFF Language Map: ${changedFileKeys.size} XLIFF file(s) changed; ${commentHits} Developer-comment translation(s), ${mapHits} translation-memory hit(s), ${aiHits} AI translation(s), ${stillMissing} trans-unit(s) still missing.${aiStatus}${commentConflictText}${mapConflictText}`
+    );
+}
+
+function groupUnitsBySource(units) {
+    const result = new Map();
+    for (const unit of units || []) {
+        if (!result.has(unit.source)) result.set(unit.source, []);
+        result.get(unit.source).push(unit);
+    }
+    return result;
+}
+
+function collectUnambiguousMapAdditions(sourceCandidates, uri, mapConflictKeys) {
+    const additions = [];
+    for (const [source, translations] of sourceCandidates) {
+        if (translations.size === 1) {
+            additions.push({ source, translation: [...translations][0] });
+        } else if (translations.size > 1) {
+            mapConflictKeys.add(`${uri.toString()}\u0000${source}`);
+        }
+    }
+    return additions;
+}
+
+function addSourceCandidate(candidateMap, source, translation) {
+    if (!source || !translation) return;
+    if (!candidateMap.has(source)) candidateMap.set(source, new Set());
+    candidateMap.get(source).add(translation);
+}
+
+function getMapUri(xlfUri, language) {
+    const ext = path.extname(xlfUri.fsPath);
+    let base = xlfUri.fsPath.slice(0, -ext.length);
+    const localeSuffix = new RegExp(`\\.${escapeRegExp(language)}$`, 'i');
+    if (!localeSuffix.test(base)) base += `.${language}`;
+    return vscode.Uri.file(`${base}.lng`);
+}
+
+function inferLanguageFromFilename(filePath) {
+    const match = path.basename(filePath).match(/\.([a-z]{2,3}(?:-[A-Za-z0-9]{2,8})+)\.xlf$/i);
+    return match ? match[1] : undefined;
+}
+
+function inferLanguageFromLngFilename(filePath) {
+    const match = path.basename(filePath).match(/\.([a-z]{2,3}(?:-[A-Za-z0-9]{2,8})+)\.lng$/i);
+    return match ? match[1] : undefined;
+}
+
+async function readLngIfExists(uri) {
+    try {
+        return parseLng(await readText(uri));
+    } catch (err) {
+        if (err && (err.code === 'FileNotFound' || err.code === 'ENOENT')) return { entries: [], errors: [] };
+        return { entries: [], errors: [] };
+    }
+}
+
+async function readText(uri) {
+    const openDocument = vscode.workspace.textDocuments.find(document => document.uri.toString() === uri.toString());
+    if (openDocument) return openDocument.getText();
+    return Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
+}
+
+async function writeText(uri, text) {
+    const openDocument = vscode.workspace.textDocuments.find(document => document.uri.toString() === uri.toString());
+    if (!openDocument) {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(text, 'utf8'));
+        return;
+    }
+
+    if (openDocument.getText() === text) return;
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(uri, new vscode.Range(openDocument.positionAt(0), openDocument.positionAt(openDocument.getText().length)), text);
+    await vscode.workspace.applyEdit(edit);
+}
+
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function formatError(err) {
+    if (err instanceof Error) return err.message;
+    return String(err);
+}
+
+function deactivate() {}
+
+module.exports = { activate, deactivate, getMapUri, inferLanguageFromFilename, inferLanguageFromLngFilename };
