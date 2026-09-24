@@ -1,0 +1,5 @@
+.github/**
+.serena/**
+.gitignore
+test/**
+*.vsix

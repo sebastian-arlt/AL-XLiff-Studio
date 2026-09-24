@@ -5,6 +5,10 @@
   "version": "1.0.10",
   "publisher": "sebastian-tools",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sebastian-arlt/BC.Xliff.Map"
+  },
   "engines": {
     "vscode": "^1.97.0"
   },
@@ -162,6 +166,10 @@
     }
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "package": "vsce package --out bc-xliff-language-map.vsix"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.1"
   }
 }
