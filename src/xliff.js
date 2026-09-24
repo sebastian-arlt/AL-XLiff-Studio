@@ -174,6 +174,22 @@ function getDeveloperCommentTranslationForUnits(units, targetLanguage) {
     return { translation: undefined, conflict: false };
 }
 
+const REVIEW_TARGET_STATES = new Set([
+    'needs-adaptation',
+    'needs-l10n',
+    'needs-review-adaptation',
+    'needs-review-l10n',
+    'needs-review-translation'
+]);
+
+const COMPLETED_TARGET_STATES = new Set(['translated', 'signed-off', 'final']);
+const MISSING_TARGET_STATES = new Set(['new', 'needs-translation']);
+
+function isReviewTranslation(unit) {
+    if (!unit || !unit.target) return false;
+    return REVIEW_TARGET_STATES.has(String(unit.targetState || '').toLowerCase());
+}
+
 function isMissingTranslation(unit, treatNeedsTranslationAsMissing = true) {
     if (unit.target === undefined || unit.target.length === 0) {
         return true;
@@ -181,9 +197,15 @@ function isMissingTranslation(unit, treatNeedsTranslationAsMissing = true) {
     if (!treatNeedsTranslationAsMissing) {
         return false;
     }
-    const state = (unit.targetState || '').toLowerCase();
-    if (!state) return false;
-    return !['translated', 'signed-off', 'final'].includes(state);
+
+    const state = String(unit.targetState || '').toLowerCase();
+    if (!state || COMPLETED_TARGET_STATES.has(state) || REVIEW_TARGET_STATES.has(state)) {
+        return false;
+    }
+
+    // Known untranslated states are eligible for deterministic/AI filling.
+    // Unknown non-final states are treated conservatively as missing.
+    return MISSING_TARGET_STATES.has(state) || !COMPLETED_TARGET_STATES.has(state);
 }
 
 function translatedPairs(parsed, options = {}) {
@@ -192,7 +214,10 @@ function translatedPairs(parsed, options = {}) {
     const conflicts = [];
 
     for (const unit of parsed.units) {
-        if (!unit.source || isMissingTranslation(unit, treatNeedsTranslationAsMissing) || !unit.target) {
+        // Translation-memory entries must be confirmed translations. Targets
+        // that still need adaptation/review/l10n are intentionally excluded so
+        // fuzzy, merge, or source-change candidates cannot pollute the .lng.
+        if (!unit.source || !unit.target || isMissingTranslation(unit, treatNeedsTranslationAsMissing) || isReviewTranslation(unit)) {
             continue;
         }
         if (bySource.has(unit.source) && bySource.get(unit.source) !== unit.target) {
@@ -299,48 +324,87 @@ function setTarget(unitRaw, translation, eol, setTranslatedState) {
 }
 
 const SYNC_NOTE_FROM = 'BC.XliffMap';
+const SOURCE_CHANGE_NOTE_PREFIX = 'Source changed from ';
 
-// Compares an already-translated target file against its generator (.g.xlf)
-// source by trans-unit id and returns the ids whose source text drifted
-// since the last translation, mirroring BC.SyncXlf's needs-l10n detection.
+// Compares a translation XLIFF against its generator (.g.xlf) by trans-unit id.
+// Source changes are detected even when the target is currently empty so that
+// a later translation always works with the current English source text.
 function detectSourceChanges(targetParsed, sourceParsed) {
     const sourceById = new Map(sourceParsed.units.map(unit => [unit.id, unit]));
     const changed = new Map();
     for (const unit of targetParsed.units) {
-        if (!unit.id || !unit.target) continue;
+        if (!unit.id) continue;
         const sourceUnit = sourceById.get(unit.id);
         if (!sourceUnit) continue;
         if (sourceUnit.source !== unit.source) {
-            changed.set(unit.id, { oldSource: unit.source, newSource: sourceUnit.source });
+            changed.set(unit.id, {
+                oldSource: unit.source,
+                newSource: sourceUnit.source,
+                newSourceRaw: sourceUnit.sourceRaw
+            });
         }
     }
     return changed;
 }
 
-// Sets state="needs-l10n" and appends a review note for every trans-unit id
-// present in changedIds. Idempotent: a unit already carrying the sync note is
-// left untouched.
+// Synchronizes changed <source> content from the generator XLIFF. If a target
+// already exists it is retained and marked needs-l10n for human review. The
+// source-change note is specific, so unrelated BC.XliffMap notes (fuzzy/merge)
+// never suppress source synchronization.
 function flagSourceChangedUnits(text, changedIds) {
     if (!changedIds || changedIds.size === 0) {
-        return { text, flaggedCount: 0 };
+        return { text, synchronizedCount: 0, flaggedCount: 0 };
     }
     const eol = text.includes('\r\n') ? '\r\n' : '\n';
     let flaggedCount = 0;
+    let synchronizedCount = 0;
 
     const result = text.replace(/<trans-unit\b([^>]*)>([\s\S]*?)<\/trans-unit>/gi, (unitRaw, unitAttrs) => {
         const id = getAttribute(unitAttrs, 'id') || '';
         if (!changedIds.has(id)) {
             return unitRaw;
         }
-        if (new RegExp(`from\\s*=\\s*["']${escapeRegExp(SYNC_NOTE_FROM)}["']`, 'i').test(unitRaw)) {
-            return unitRaw;
+
+        const change = changedIds instanceof Map ? changedIds.get(id) : undefined;
+        let updated = unitRaw;
+        synchronizedCount++;
+        if (change && typeof change.newSourceRaw === 'string') {
+            updated = setSourceRaw(updated, change.newSourceRaw);
+        } else if (change && typeof change.newSource === 'string') {
+            updated = setSourceRaw(updated, encodeXmlText(change.newSource));
         }
-        flaggedCount++;
-        const withState = setTargetState(unitRaw, 'needs-l10n');
-        return appendSyncNote(withState, 'The source text changed. Review the translation.', eol);
+
+        const parsed = parseSingleUnit(updated);
+        if (!parsed) return updated;
+
+        // Empty/new/needs-translation targets should simply be translated later
+        // from the synchronized source. Only an existing usable/review target is
+        // preserved and converted to needs-l10n for human review.
+        if (parsed.target && !isMissingTranslation(parsed, true)) {
+            if (hasSpecificSyncNote(updated, SOURCE_CHANGE_NOTE_PREFIX)) {
+                return updated;
+            }
+            flaggedCount++;
+            updated = setTargetState(updated, 'needs-l10n');
+            const oldSource = change && typeof change.oldSource === 'string' ? change.oldSource : parsed.source;
+            const newSource = change && typeof change.newSource === 'string' ? change.newSource : parsed.source;
+            updated = appendSyncNote(
+                updated,
+                `${SOURCE_CHANGE_NOTE_PREFIX}"${oldSource}" to "${newSource}". Review the translation.`,
+                eol,
+                'source'
+            );
+        }
+
+        return updated;
     });
 
-    return { text: result, flaggedCount };
+    return { text: result, synchronizedCount, flaggedCount };
+}
+
+function setSourceRaw(unitRaw, sourceRaw) {
+    const sourceRe = /(<source\b[^>]*>)([\s\S]*?)(<\/source>)/i;
+    return unitRaw.replace(sourceRe, `$1${sourceRaw}$3`);
 }
 
 function setTargetState(unitRaw, state) {
@@ -359,7 +423,18 @@ function setTargetState(unitRaw, state) {
     return unitRaw;
 }
 
-function appendSyncNote(unitRaw, noteText, eol) {
+function hasSpecificSyncNote(unitRaw, notePrefix) {
+    const noteRe = /<note\b([^>]*)>([\s\S]*?)<\/note>/gi;
+    let match;
+    while ((match = noteRe.exec(unitRaw)) !== null) {
+        if (String(getAttribute(match[1], 'from') || '').trim().toLowerCase() !== SYNC_NOTE_FROM.toLowerCase()) continue;
+        const text = decodeXmlEntities(stripXmlTags(match[2])).trim();
+        if (text.startsWith(notePrefix)) return true;
+    }
+    return false;
+}
+
+function appendSyncNote(unitRaw, noteText, eol, annotates = 'general') {
     const targetCloseRe = /(<target\b[^>]*>[\s\S]*?<\/target>|<target\b[^>]*\/\s*>)/i;
     const targetMatch = unitRaw.match(targetCloseRe);
     if (!targetMatch) {
@@ -368,7 +443,7 @@ function appendSyncNote(unitRaw, noteText, eol) {
     const beforeTarget = unitRaw.slice(0, targetMatch.index);
     const indentMatch = beforeTarget.match(/(?:^|\r?\n)([ \t]*)$/);
     const indent = indentMatch ? indentMatch[1] : '          ';
-    const note = `<note from="${SYNC_NOTE_FROM}" annotates="general" priority="1">${encodeXmlText(noteText)}</note>`;
+    const note = `<note from="${SYNC_NOTE_FROM}" annotates="${escapeXmlAttribute(annotates)}" priority="1">${encodeXmlText(noteText)}</note>`;
     return unitRaw.replace(targetCloseRe, `$1${eol}${indent}${note}`);
 }
 
@@ -390,6 +465,7 @@ function escapeRegExp(value) {
 module.exports = {
     parseXliff,
     isMissingTranslation,
+    isReviewTranslation,
     translatedPairs,
     updateMissingTranslations,
     encodeXmlText,

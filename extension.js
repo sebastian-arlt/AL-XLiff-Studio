@@ -15,7 +15,8 @@ const { translateItems, chooseAiModelCommand } = require('./src/ai');
 const { LanguageMapEditorProvider } = require('./src/editor');
 const { resolveKnownTranslationForUnit } = require('./src/resolver');
 const { findDuplicateIds, findDuplicateGeneratorNotes, findMaxWidthViolations } = require('./src/validate');
-const { mergeTranslationUnits } = require('./src/merge');
+const { mergeTranslationUnits, validateMergeLanguages } = require('./src/merge');
+const { getGeneratorCompanionFilename } = require('./src/paths');
 
 function activate(context) {
     context.subscriptions.push(
@@ -49,6 +50,7 @@ async function buildMaps(singleUri) {
 
     const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
     const checkDuplicateIds = config.get('validation.checkDuplicateIds', true);
+    const checkDuplicateGeneratorNotes = config.get('validation.checkDuplicateGeneratorNotes', true);
 
     let createdOrUpdated = 0;
     let pairCount = 0;
@@ -71,7 +73,7 @@ async function buildMaps(singleUri) {
                 const language = parsed.targetLanguage || inferLanguageFromFilename(uri.fsPath);
                 if (!language) continue;
 
-                if (checkDuplicateIds && hasStructuralViolations(parsed, uri, skippedFiles)) continue;
+                if (hasStructuralViolations(parsed, uri, skippedFiles, { checkDuplicateIds, checkDuplicateGeneratorNotes })) continue;
 
                 const pairs = translatedPairs(parsed, { treatNeedsTranslationAsMissing: true });
                 const mapUri = getMapUri(uri, language);
@@ -104,6 +106,7 @@ async function fillMissingTranslations(singleUri) {
     const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
     const setTranslatedState = config.get('setTranslatedState', true);
     const checkDuplicateIds = config.get('validation.checkDuplicateIds', true);
+    const checkDuplicateGeneratorNotes = config.get('validation.checkDuplicateGeneratorNotes', true);
     const checkMaxWidth = config.get('validation.checkMaxWidth', true);
     const sourceChangeEnabled = config.get('sourceChangeDetection.enabled', true);
     const fuzzyOptions = {
@@ -117,7 +120,8 @@ async function fillMissingTranslations(singleUri) {
     let aiHits = 0;
     let stillMissing = 0;
     let maxWidthViolationCount = 0;
-    let sourceChangedCount = 0;
+    let sourceSynchronizedCount = 0;
+    let sourceChangedTargetCount = 0;
     const changedFileKeys = new Set();
     const commentConflictKeys = new Set();
     const mapConflictKeys = new Set();
@@ -151,7 +155,40 @@ async function fillMissingTranslations(singleUri) {
             const language = parsed.targetLanguage || inferLanguageFromFilename(uri.fsPath);
             if (!language) continue;
 
-            if (checkDuplicateIds && hasStructuralViolations(parsed, uri, skippedFiles)) continue;
+            if (hasStructuralViolations(parsed, uri, skippedFiles, { checkDuplicateIds, checkDuplicateGeneratorNotes })) continue;
+
+            // Synchronize changed English source text from the matching .g.xlf
+            // before any translation lookup. Existing target text is preserved
+            // as needs-l10n; empty targets continue through the normal pipeline.
+            if (sourceChangeEnabled) {
+                try {
+                    const siblingUri = await findSiblingGxlf(uri, language);
+                    if (siblingUri) {
+                        const sourceParsed = parseXliff(await readText(siblingUri));
+                        const sourceDuplicateIds = findDuplicateIds(sourceParsed);
+                        if (sourceDuplicateIds.length) {
+                            throw new Error(`generator XLIFF contains duplicate trans-unit id(s): ${sourceDuplicateIds.join(', ')}`);
+                        }
+                        if (normalizeLanguageCode(sourceParsed.sourceLanguage) !== normalizeLanguageCode(parsed.sourceLanguage)) {
+                            throw new Error(`generator source-language ${sourceParsed.sourceLanguage} does not match translation source-language ${parsed.sourceLanguage}`);
+                        }
+                        const changedUnits = detectSourceChanges(parsed, sourceParsed);
+                        if (changedUnits.size) {
+                            const synchronized = flagSourceChangedUnits(originalText, changedUnits);
+                            if (synchronized.synchronizedCount > 0) {
+                                originalText = synchronized.text;
+                                parsed = parseXliff(originalText);
+                                await writeText(uri, originalText);
+                                changedFileKeys.add(uri.toString());
+                                sourceSynchronizedCount += synchronized.synchronizedCount;
+                                sourceChangedTargetCount += synchronized.flaggedCount;
+                            }
+                        }
+                    }
+                } catch (err) {
+                    failedFiles.push({ uri, message: `source sync: ${formatWriteError(err)}` });
+                }
+            }
 
             const mapUri = getMapUri(uri, language);
             const existingMap = await readLngIfExists(mapUri);
@@ -361,27 +398,7 @@ async function fillMissingTranslations(singleUri) {
         let finalText = work.currentText;
         let finalParsed = parseXliff(finalText);
 
-        if (sourceChangeEnabled) {
-            try {
-                const siblingUri = await findSiblingGxlf(work.uri);
-                if (siblingUri) {
-                    const sourceParsed = parseXliff(await readText(siblingUri));
-                    const changedIds = detectSourceChanges(finalParsed, sourceParsed);
-                    if (changedIds.size) {
-                        const flagged = flagSourceChangedUnits(finalText, changedIds);
-                        if (flagged.flaggedCount > 0) {
-                            finalText = flagged.text;
-                            finalParsed = parseXliff(finalText);
-                            await writeText(work.uri, finalText);
-                            changedFileKeys.add(work.uri.toString());
-                            sourceChangedCount += flagged.flaggedCount;
-                        }
-                    }
-                }
-            } catch (err) {
-                failedFiles.push({ uri: work.uri, message: formatWriteError(err) });
-            }
-        }
+
 
         if (checkMaxWidth) {
             maxWidthViolationCount += findMaxWidthViolations(finalParsed).length;
@@ -403,7 +420,9 @@ async function fillMissingTranslations(singleUri) {
         : '';
     const fuzzyText = fuzzyHits ? `, ${fuzzyHits} fuzzy-match translation(s) flagged for review` : '';
     const maxWidthText = maxWidthViolationCount ? ` ${maxWidthViolationCount} target(s) exceed their maxwidth.` : '';
-    const sourceChangedText = sourceChangedCount ? ` ${sourceChangedCount} trans-unit(s) flagged needs-l10n because the source text changed.` : '';
+    const sourceChangedText = sourceSynchronizedCount
+        ? ` ${sourceSynchronizedCount} source text(s) synchronized from .g.xlf; ${sourceChangedTargetCount} existing target(s) flagged needs-l10n for review.`
+        : '';
 
     vscode.window.showInformationMessage(
         `BC XLIFF Language Map: ${changedFileKeys.size} XLIFF file(s) changed; ${commentHits} Developer-comment translation(s), ${mapHits} translation-memory hit(s)${fuzzyText}, ${aiHits} AI translation(s), ${stillMissing} trans-unit(s) still missing.${aiStatus}${commentConflictText}${mapConflictText}${maxWidthText}${sourceChangedText}`
@@ -411,17 +430,35 @@ async function fillMissingTranslations(singleUri) {
     reportSkippedAndFailed(skippedFiles, failedFiles);
 }
 
-async function findSiblingGxlf(uri) {
+async function findSiblingGxlf(uri, targetLanguage) {
     const folder = path.dirname(uri.fsPath);
-    const found = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, '*.g.xlf'), undefined, 1);
-    return found[0];
+    const filename = path.basename(uri.fsPath);
+    const language = targetLanguage || inferLanguageFromFilename(uri.fsPath);
+
+    if (language) {
+        const exactName = getGeneratorCompanionFilename(uri.fsPath, language);
+        if (exactName) {
+            const exactUri = vscode.Uri.file(path.join(folder, exactName));
+            try {
+                await vscode.workspace.fs.stat(exactUri);
+                return exactUri;
+            } catch (_) {
+                // Fall through only when the exact companion is not present.
+            }
+        }
+    }
+
+    const found = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, '*.g.xlf'));
+    // A single generator file is an unambiguous fallback. With multiple files,
+    // refusing to guess is safer than synchronizing against the wrong app.
+    return found.length === 1 ? found[0] : undefined;
 }
 
-// Duplicate trans-unit ids or duplicate "Xliff Generator" notes corrupt
-// id-based matching; the affected file is skipped rather than partially fixed.
-function hasStructuralViolations(parsed, uri, skippedFiles) {
-    const duplicateIds = findDuplicateIds(parsed);
-    const duplicateNotes = findDuplicateGeneratorNotes(parsed);
+// Structural checks can be enabled independently. The affected file is skipped
+// rather than partially modified when an enabled check finds ambiguity.
+function hasStructuralViolations(parsed, uri, skippedFiles, options = {}) {
+    const duplicateIds = options.checkDuplicateIds === false ? [] : findDuplicateIds(parsed);
+    const duplicateNotes = options.checkDuplicateGeneratorNotes === false ? [] : findDuplicateGeneratorNotes(parsed);
     if (!duplicateIds.length && !duplicateNotes.length) return false;
     skippedFiles.push({ uri, duplicateIds, duplicateNotes });
     return true;
@@ -475,18 +512,23 @@ async function mergeTranslations() {
     );
     if (!toPick) return;
 
-    const modePick = await vscode.window.showQuickPick([
-        { label: 'Untranslated', description: 'Fill only trans-units with no target text yet', mode: 'untranslated' },
-        { label: 'Overwrite', description: 'Replace the target text of every matched trans-unit', mode: 'overwrite' },
-        { label: 'Add', description: 'Insert whole trans-units that exist in the source file but not in the target file', mode: 'add' }
-    ], { placeHolder: 'Merge mode' });
-    if (!modePick) return;
-
     try {
         const sourceText = await readText(fromPick.uri);
         const targetText = await readText(toPick.uri);
         const sourceParsed = parseXliff(sourceText);
         const targetParsed = parseXliff(targetText);
+        const languageCheck = validateMergeLanguages(targetParsed, sourceParsed);
+        if (!languageCheck.compatible) {
+            vscode.window.showWarningMessage(`BC XLIFF Language Map: merge blocked. ${languageCheck.reason}`);
+            return;
+        }
+
+        const modePick = await vscode.window.showQuickPick([
+            { label: 'Untranslated', description: 'Fill missing/new/needs-translation targets only', mode: 'untranslated' },
+            { label: 'Overwrite', description: 'Replace the target text of every matched trans-unit', mode: 'overwrite' },
+            { label: 'Add', description: 'Insert whole trans-units that exist in the source file but not in the target file', mode: 'add' }
+        ], { placeHolder: 'Merge mode' });
+        if (!modePick) return;
 
         const result = mergeTranslationUnits(targetText, targetParsed, sourceParsed, modePick.mode);
         if (result.updatedCount === 0 && result.addedCount === 0) {
@@ -574,6 +616,10 @@ async function writeText(uri, text) {
     const edit = new vscode.WorkspaceEdit();
     edit.replace(uri, new vscode.Range(openDocument.positionAt(0), openDocument.positionAt(openDocument.getText().length)), text);
     await vscode.workspace.applyEdit(edit);
+}
+
+function normalizeLanguageCode(value) {
+    return String(value || '').trim().replace(/_/g, '-').toLowerCase();
 }
 
 function escapeRegExp(value) {

@@ -90,3 +90,15 @@ test('AI confirmation is evaluated only after deterministic translations were ap
     assert.match(extensionSource, /const remainingUnits = afterDeterministic\.units\.filter/);
     assert.match(extensionSource, /const companionMap = entriesToMap\(seeded\.entries\)/);
 });
+
+test('source synchronization runs before translation-memory and AI remainder calculation', () => {
+    const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+    const sourceSync = extensionSource.indexOf('const changedUnits = detectSourceChanges(parsed, sourceParsed)');
+    const currentPairs = extensionSource.indexOf('const currentPairs = translatedPairs(parsed', sourceSync);
+    const missingUnits = extensionSource.indexOf('const missingUnits = parsed.units.filter', currentPairs);
+    const pendingCount = extensionSource.indexOf('const aiPendingCount =', missingUnits);
+    assert.ok(sourceSync >= 0);
+    assert.ok(currentPairs > sourceSync);
+    assert.ok(missingUnits > currentPairs);
+    assert.ok(pendingCount > missingUnits);
+});

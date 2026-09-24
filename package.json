@@ -2,7 +2,7 @@
   "name": "bc-xliff-language-map",
   "displayName": "BC XLIFF Language Map",
   "description": "Translation-memory .lng files, XLIFF repair and VS Code AI fallback for Microsoft Dynamics 365 Business Central AL apps.",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "publisher": "sebastian-tools",
   "license": "MIT",
   "repository": {
@@ -101,7 +101,7 @@
         "bcXliffLanguageMap.treatNeedsTranslationAsMissing": {
           "type": "boolean",
           "default": true,
-          "description": "Treat XLIFF targets with states such as needs-translation/needs-review/new as missing."
+          "description": "Treat empty/new/needs-translation XLIFF targets as missing. Review/adaptation/l10n states with target text are preserved for human review and are not sent to AI."
         },
         "bcXliffLanguageMap.setTranslatedState": {
           "type": "boolean",
@@ -138,7 +138,12 @@
         "bcXliffLanguageMap.validation.checkDuplicateIds": {
           "type": "boolean",
           "default": true,
-          "description": "Warn and skip a file when it contains duplicate trans-unit ids or duplicate Xliff Generator notes."
+          "description": "Warn and skip a file when it contains duplicate trans-unit ids."
+        },
+        "bcXliffLanguageMap.validation.checkDuplicateGeneratorNotes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn and skip a file when it contains duplicate Xliff Generator notes."
         },
         "bcXliffLanguageMap.validation.checkMaxWidth": {
           "type": "boolean",

@@ -1,26 +1,82 @@
 'use strict';
 
-const { getAttribute, setAttribute, encodeXmlText } = require('./xliff');
+const { getAttribute, setAttribute, encodeXmlText, isMissingTranslation } = require('./xliff');
+const { findDuplicateIds, findDuplicateGeneratorNotes } = require('./validate');
 
 const MERGE_NOTE = 'Copied from another xliff file. Please review the translation.';
 const MERGE_STATE = 'needs-adaptation';
+const MERGE_NOTE_FROM = 'BC.XliffMap';
+
+function normalizeLanguage(value) {
+    return String(value || '').trim().replace(/_/g, '-').toLowerCase();
+}
+
+function validateMergeLanguages(targetParsed, sourceParsed) {
+    const sourceSourceLanguage = normalizeLanguage(sourceParsed && sourceParsed.sourceLanguage);
+    const targetSourceLanguage = normalizeLanguage(targetParsed && targetParsed.sourceLanguage);
+    const sourceTargetLanguage = normalizeLanguage(sourceParsed && sourceParsed.targetLanguage);
+    const targetTargetLanguage = normalizeLanguage(targetParsed && targetParsed.targetLanguage);
+
+    if (sourceSourceLanguage && targetSourceLanguage && sourceSourceLanguage !== targetSourceLanguage) {
+        return {
+            compatible: false,
+            reason: `Source languages differ (${sourceParsed.sourceLanguage} vs ${targetParsed.sourceLanguage}).`
+        };
+    }
+    if (!sourceTargetLanguage || !targetTargetLanguage) {
+        return {
+            compatible: false,
+            reason: 'Both XLIFF files must define target-language before translations can be merged.'
+        };
+    }
+    if (sourceTargetLanguage !== targetTargetLanguage) {
+        return {
+            compatible: false,
+            reason: `Target languages differ (${sourceParsed.targetLanguage} vs ${targetParsed.targetLanguage}).`
+        };
+    }
+    return { compatible: true };
+}
+
+
+function validateMergeStructure(parsed, label) {
+    const duplicateIds = findDuplicateIds(parsed);
+    const duplicateNotes = findDuplicateGeneratorNotes(parsed);
+    if (!duplicateIds.length && !duplicateNotes.length) return { valid: true };
+
+    const parts = [];
+    if (duplicateIds.length) parts.push(`duplicate trans-unit id(s): ${duplicateIds.join(', ')}`);
+    if (duplicateNotes.length) parts.push(`${duplicateNotes.length} duplicate Xliff Generator note(s)`);
+    return { valid: false, reason: `${label} XLIFF contains ${parts.join(' and ')}.` };
+}
 
 function buildSourceLookup(sourceParsed) {
     const byId = new Map();
-    const byGeneratorNote = new Map();
+    const byGeneratorNoteGroups = new Map();
     const bySourceGroups = new Map();
 
     for (const unit of sourceParsed.units) {
         if (!unit.target) continue;
+        // Empty/new/needs-translation source targets are not translations that
+        // should be propagated. Review/adaptation targets remain eligible but
+        // are still flagged needs-adaptation in the destination.
+        if (isMissingTranslation(unit, true)) continue;
+
         if (unit.id) byId.set(unit.id, unit);
         const generatorNote = (unit.noteDetails || []).find(note => String(note.from || '').trim().toLowerCase() === 'xliff generator');
-        if (generatorNote && generatorNote.text && !byGeneratorNote.has(generatorNote.text)) {
-            byGeneratorNote.set(generatorNote.text, unit);
+        if (generatorNote && generatorNote.text) {
+            if (!byGeneratorNoteGroups.has(generatorNote.text)) byGeneratorNoteGroups.set(generatorNote.text, []);
+            byGeneratorNoteGroups.get(generatorNote.text).push(unit);
         }
         if (unit.source) {
             if (!bySourceGroups.has(unit.source)) bySourceGroups.set(unit.source, []);
             bySourceGroups.get(unit.source).push(unit);
         }
+    }
+
+    const byGeneratorNote = new Map();
+    for (const [note, units] of byGeneratorNoteGroups) {
+        if (units.length === 1) byGeneratorNote.set(note, units[0]);
     }
 
     const byDistinctSource = new Map();
@@ -45,13 +101,25 @@ function findMatch(targetUnit, lookup) {
     return undefined;
 }
 
-// Merges translations from sourceParsed (another already-translated xlf file)
-// into targetText. Mirrors BC.SyncXlf's three merge modes:
-// - 'untranslated': fills only trans-units that currently have no target text.
-// - 'overwrite': always replaces the target text of a matched trans-unit.
-// - 'add': inserts whole trans-units that exist in source but not in target.
-// Matching order per trans-unit: id -> "Xliff Generator" note -> unique source text.
+// Merges translations from sourceParsed into targetText.
+// Matching order per trans-unit: id -> unique "Xliff Generator" note -> unique source text.
 function mergeTranslationUnits(targetText, targetParsed, sourceParsed, mode) {
+    const languageCheck = validateMergeLanguages(targetParsed, sourceParsed);
+    if (!languageCheck.compatible) {
+        const error = new Error(languageCheck.reason);
+        error.code = 'XLIFF_LANGUAGE_MISMATCH';
+        throw error;
+    }
+
+    const sourceStructure = validateMergeStructure(sourceParsed, 'Source');
+    const targetStructure = validateMergeStructure(targetParsed, 'Target');
+    const structuralFailure = !sourceStructure.valid ? sourceStructure : (!targetStructure.valid ? targetStructure : undefined);
+    if (structuralFailure) {
+        const error = new Error(structuralFailure.reason);
+        error.code = 'XLIFF_STRUCTURAL_AMBIGUITY';
+        throw error;
+    }
+
     const lookup = buildSourceLookup(sourceParsed);
     const eol = targetText.includes('\r\n') ? '\r\n' : '\n';
     let updatedCount = 0;
@@ -63,8 +131,8 @@ function mergeTranslationUnits(targetText, targetParsed, sourceParsed, mode) {
         for (const unit of targetParsed.units) {
             const match = findMatch(unit, lookup);
             if (!match) continue;
-            if (mode === 'untranslated' && unit.target) continue;
-            if (match.target === unit.target) continue;
+            if (mode === 'untranslated' && !isMissingTranslation(unit, true)) continue;
+            if (match.target === unit.target && !isMissingTranslation(unit, true)) continue;
             translationById.set(unit.id, match.target);
         }
 
@@ -81,7 +149,7 @@ function mergeTranslationUnits(targetText, targetParsed, sourceParsed, mode) {
         const targetIds = new Set(targetParsed.units.map(unit => unit.id));
         const additions = [];
         for (const unit of sourceParsed.units) {
-            if (!unit.target || targetIds.has(unit.id)) continue;
+            if (!unit.target || isMissingTranslation(unit, true) || targetIds.has(unit.id)) continue;
             additions.push(writeMergedTarget(unit.raw, unit.target, eol));
         }
         const groupCloseRe = /(<\/group>)/i;
@@ -110,7 +178,6 @@ function writeMergedTarget(unitRaw, translation, eol) {
             const attrs = setAttribute(selfClosingMatch[1] || '', 'state', MERGE_STATE);
             updated = unitRaw.replace(selfClosingTargetRe, `<target${attrs}>${escaped}</target>`);
         } else {
-            // No target element at all yet: insert one right after <source>.
             const sourceRe = /(<source\b[^>]*>[\s\S]*?<\/source>)/i;
             const sourceMatch = unitRaw.match(sourceRe);
             if (sourceMatch) {
@@ -125,14 +192,21 @@ function writeMergedTarget(unitRaw, translation, eol) {
 }
 
 function appendMergeNote(unitRaw, eol) {
+    if (hasMergeNote(unitRaw)) return unitRaw;
     const targetCloseRe = /(<target\b[^>]*>[\s\S]*?<\/target>|<target\b[^>]*\/\s*>)/i;
     const targetMatch = unitRaw.match(targetCloseRe);
     if (!targetMatch) return unitRaw;
     const beforeTarget = unitRaw.slice(0, targetMatch.index);
     const indentMatch = beforeTarget.match(/(?:^|\r?\n)([ \t]*)$/);
     const indent = indentMatch ? indentMatch[1] : '          ';
-    const note = `<note from="BC.XliffMap" annotates="general" priority="1">${encodeXmlText(MERGE_NOTE)}</note>`;
+    const note = `<note from="${MERGE_NOTE_FROM}" annotates="general" priority="1">${encodeXmlText(MERGE_NOTE)}</note>`;
     return unitRaw.replace(targetCloseRe, `$1${eol}${indent}${note}`);
 }
 
-module.exports = { mergeTranslationUnits };
+function hasMergeNote(unitRaw) {
+    const escaped = MERGE_NOTE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const noteRe = new RegExp(`<note\\b[^>]*from\\s*=\\s*["']${MERGE_NOTE_FROM.replace('.', '\\.')}["'][^>]*>\\s*${escaped}\\s*<\\/note>`, 'i');
+    return noteRe.test(unitRaw);
+}
+
+module.exports = { mergeTranslationUnits, validateMergeLanguages, validateMergeStructure };

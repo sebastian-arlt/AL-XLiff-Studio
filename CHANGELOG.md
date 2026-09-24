@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.11
+
+- Fixes fuzzy-match handling: `needs-review-translation` is now a review state and is no longer counted as missing or sent to AI.
+- Preserves `needs-adaptation`, `needs-l10n`, and `needs-review-*` targets for human review instead of automatically retranslating them.
+- Excludes review-state targets from `.lng` translation memory so unconfirmed fuzzy/merge/source-change candidates cannot become trusted lookup entries.
+- Moves source-change synchronization before translation lookup and copies the current `<source>` content from the matching `.g.xlf` into the translation XLIFF.
+- Matches generator files by basename first (`MyApp.de-DE.xlf` → `MyApp.g.xlf`) and refuses to guess when multiple fallback `.g.xlf` files exist.
+- Source-change handling is no longer blocked by unrelated `BC.XliffMap` fuzzy/merge notes; only the specific source-change note is idempotent.
+- Existing usable targets whose source changed are preserved as `needs-l10n`; empty/new/`needs-translation` targets remain eligible for normal translation.
+- Adds generator source-language and duplicate-id safety checks before source synchronization.
+- Splits duplicate-id and duplicate-`Xliff Generator`-note validation into independent settings.
+- Blocks XLIFF merge across different source/target languages and blocks structurally ambiguous merge files.
+- `Untranslated` merge now fills empty/new/`needs-translation` targets but preserves review/adaptation/l10n targets.
+- Makes merge review notes idempotent.
+- Adds regression coverage for the corrected review-state, source-sync, generator matching, and merge behavior.
+
 ## 1.0.10
 
 - Documents that the validation, fuzzy-match, source-change-detection, and merge features added in 1.0.9 were ported from [BC.SyncXlf](https://dev.azure.com/BE-terna-Development/_git/BC.SyncXlf), a Business Central XLIFF sync CLI originally created by Christoph Stuber (former BE-terna employee). Credit goes to that project for the original approach.
