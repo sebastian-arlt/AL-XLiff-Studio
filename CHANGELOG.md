@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.10
+
+- Documents that the validation, fuzzy-match, source-change-detection, and merge features added in 1.0.9 were ported from [BC.SyncXlf](https://dev.azure.com/BE-terna-Development/_git/BC.SyncXlf), a Business Central XLIFF sync CLI originally created by Christoph Stuber (former BE-terna employee). Credit goes to that project for the original approach.
+
+## 1.0.9
+
+- Adds duplicate detection: files with duplicate trans-unit ids or duplicate `Xliff Generator` notes are skipped with a warning instead of being partially processed.
+- Adds a `maxwidth` check that reports filled target texts exceeding their trans-unit's declared maximum width.
+- Adds an opt-in fuzzy/similarity translation-memory match (Levenshtein-based) that fills a close `.lng` match and flags it `needs-review-translation`; fuzzy matches are never written back into `.lng`.
+- Adds source-change detection: already-translated trans-units are compared by id against the sibling `*.g.xlf` file, and a changed source text is flagged `needs-l10n` with a review note.
+- Adds the `BC XLIFF: Merge Translations Between Files` command with three modes (Untranslated/Overwrite/Add) to copy translations between two already-translated XLIFF files.
+- Adds friendlier error reporting when an XLIFF or `.lng` file cannot be read or written (e.g. locked by another process).
+- Adds regression coverage for all of the above.
+
 ## 1.0.8
 
 - Adds a `Source = Translation` filter to the visual `.lng` editor; it can be combined with the existing text filter.

@@ -14,9 +14,12 @@ VS Code extension for Microsoft Dynamics 365 Business Central AL projects. It ke
 4. After AL refactoring/regeneration changes XLIFF ids, run **BC XLIFF: Fill Missing Translations**.
 5. Missing/stale targets are resolved in this fixed order:
    - explicit translation from the unit's Developer comment,
-   - companion `.lng` translation memory,
+   - companion `.lng` translation memory (exact source match),
+   - companion `.lng` translation memory (fuzzy/similarity match, opt-in, flagged `needs-review-translation`),
    - VS Code Language Model API when enabled.
 6. If entries still need AI, the extension asks for permission on every translation run before sending any request. Successful AI translations are written both to the XLIFF and the companion `.lng` file.
+7. Trans-units whose source text changed compared to the sibling `*.g.xlf` file are flagged `state="needs-l10n"` with a review note, so stale translations are never silently kept as `translated`.
+8. Use **BC XLIFF: Merge Translations Between Files** to copy translations between two already-translated XLIFF files (e.g. from a similar app) without going through `.g.xlf`/comments/AI.
 
 ## `.lng` format
 
@@ -52,6 +55,7 @@ Use **Reopen Editor With...** if you want to inspect the raw text instead.
 - `BC XLIFF: Fill Missing Translations`
 - `BC XLIFF: Fill Missing Translations in Current File`
 - `BC XLIFF: Select Translation AI Model`
+- `BC XLIFF: Merge Translations Between Files`
 
 ## AI behavior
 
@@ -96,3 +100,20 @@ The resolution order is fixed:
 3. VS Code Language Model / Copilot fallback.
 
 Translations are resolved per `trans-unit`. A Developer translation attached to the exact unit always wins, even when the same English source occurs elsewhere with a different Developer translation. If a unit has no direct Developer translation, a unique Developer translation from another missing unit with the same source may be reused; conflicting alternatives are not guessed. Because `.lng` permits only one translation per English source, context-specific conflicting translations are not collapsed into a single `.lng` row.
+
+## Validation and quality checks
+
+- **Duplicate detection** (`bcXliffLanguageMap.validation.checkDuplicateIds`, default on): a file with duplicate `trans-unit` ids or duplicate `Xliff Generator` notes is skipped with a warning instead of being partially processed, since id-based matching would otherwise be unreliable.
+- **maxwidth check** (`bcXliffLanguageMap.validation.checkMaxWidth`, default on): reports how many filled target texts exceed the `maxwidth` attribute of their `trans-unit`.
+- **Fuzzy translation-memory match** (`bcXliffLanguageMap.fuzzyMatch.enabled`, default off; `bcXliffLanguageMap.fuzzyMatch.minimumQuality`, default 80): when no exact `.lng` match exists, the closest Levenshtein-similarity match above the configured quality is applied and marked `state="needs-review-translation"` with a note naming the matched source and quality percentage. Fuzzy matches are never written back into the `.lng` file.
+- **Source-change detection** (`bcXliffLanguageMap.sourceChangeDetection.enabled`, default on): compares already-translated trans-units against the sibling `*.g.xlf` file (same folder) by id; a changed source text sets `state="needs-l10n"` and adds a review note, mirroring BC's own translation-sync behavior for stale translations.
+
+## Merging translations between files
+
+**BC XLIFF: Merge Translations Between Files** copies translations from one already-translated XLIFF file into another, matching trans-units by id, then by `Xliff Generator` note, then by a uniquely occurring source text. Three modes are available:
+
+- **Untranslated** — fills only trans-units that currently have no target text.
+- **Overwrite** — always replaces the target text of a matched trans-unit.
+- **Add** — inserts whole trans-units that exist in the source file but are entirely missing from the target file.
+
+Every merged trans-unit is marked `state="needs-adaptation"` with a review note; nothing merged this way is ever marked `translated` automatically.

@@ -4,19 +4,21 @@ const {
     getDeveloperCommentTranslation,
     getDeveloperCommentTranslationForUnits
 } = require('./xliff');
+const { findBestFuzzyMatch } = require('./fuzzy');
 
 /**
  * Resolves an already-known translation without invoking AI.
  * Priority is deliberately fixed:
  * 1. explicit Developer comment on this exact trans-unit
  * 2. an unambiguous Developer comment on another missing trans-unit with the same source
- * 3. companion .lng translation memory
- * 4. unresolved (caller may invoke AI)
+ * 3. companion .lng translation memory (exact source match)
+ * 4. companion .lng translation memory (fuzzy/similarity match, opt-in, flagged for review)
+ * 5. unresolved (caller may invoke AI)
  *
  * The exact-unit check is important: identical English captions may occur in
  * multiple Business Central objects with context-specific Developer comments.
  */
-function resolveKnownTranslationForUnit(unit, sameSourceUnits, language, companionMap) {
+function resolveKnownTranslationForUnit(unit, sameSourceUnits, language, companionMap, fuzzyOptions) {
     const unitComment = getDeveloperCommentTranslation(unit, language);
     if (unitComment.translation) {
         return {
@@ -46,6 +48,21 @@ function resolveKnownTranslationForUnit(unit, sameSourceUnits, language, compani
             source: 'map',
             commentConflict: Boolean(unitComment.conflict || groupComment.conflict)
         };
+    }
+
+    if (fuzzyOptions && fuzzyOptions.enabled && sourceText && companionMap.size) {
+        const candidates = Array.from(companionMap, ([source, translation]) => ({ source, translation }));
+        const fuzzyMatch = findBestFuzzyMatch(sourceText, candidates, fuzzyOptions.minimumQuality);
+        if (fuzzyMatch) {
+            return {
+                translation: fuzzyMatch.translation,
+                source: 'fuzzy',
+                quality: fuzzyMatch.quality,
+                matchedSource: fuzzyMatch.source,
+                review: true,
+                commentConflict: Boolean(unitComment.conflict || groupComment.conflict)
+            };
+        }
     }
 
     return {

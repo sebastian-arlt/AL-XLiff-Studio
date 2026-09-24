@@ -2,7 +2,7 @@
   "name": "bc-xliff-language-map",
   "displayName": "BC XLIFF Language Map",
   "description": "Translation-memory .lng files, XLIFF repair and VS Code AI fallback for Microsoft Dynamics 365 Business Central AL apps.",
-  "version": "1.0.8",
+  "version": "1.0.10",
   "publisher": "sebastian-tools",
   "license": "MIT",
   "engines": {
@@ -27,6 +27,7 @@
     "onCommand:bcXliffLanguageMap.fillMissing",
     "onCommand:bcXliffLanguageMap.fillMissingCurrent",
     "onCommand:bcXliffLanguageMap.selectAiModel",
+    "onCommand:bcXliffLanguageMap.mergeTranslations",
     "onCustomEditor:bcXliffLanguageMap.lngEditor"
   ],
   "contributes": {
@@ -46,6 +47,10 @@
       {
         "command": "bcXliffLanguageMap.selectAiModel",
         "title": "BC XLIFF: Select Translation AI Model"
+      },
+      {
+        "command": "bcXliffLanguageMap.mergeTranslations",
+        "title": "BC XLIFF: Merge Translations Between Files"
       }
     ],
     "menus": {
@@ -125,6 +130,33 @@
           "maximum": 50,
           "default": 20,
           "description": "Number of source strings per AI translation request."
+        },
+        "bcXliffLanguageMap.validation.checkDuplicateIds": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn and skip a file when it contains duplicate trans-unit ids or duplicate Xliff Generator notes."
+        },
+        "bcXliffLanguageMap.validation.checkMaxWidth": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when a filled target text is longer than the trans-unit's maxwidth attribute."
+        },
+        "bcXliffLanguageMap.fuzzyMatch.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Fall back to the closest similarity match in the companion .lng file when no exact match exists. Applied translations are flagged state=needs-review-translation for human review."
+        },
+        "bcXliffLanguageMap.fuzzyMatch.minimumQuality": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 80,
+          "description": "Minimum similarity percentage (Levenshtein-based) required to accept a fuzzy translation-memory match."
+        },
+        "bcXliffLanguageMap.sourceChangeDetection.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Compare already-translated trans-units against the sibling *.g.xlf file by id and flag state=needs-l10n when the source text changed."
         }
       }
     }

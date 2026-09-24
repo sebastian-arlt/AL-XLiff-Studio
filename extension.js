@@ -3,10 +3,19 @@
 const vscode = require('vscode');
 const path = require('path');
 const { parseLng, serializeLng, mergeEntries, entriesToMap } = require('./src/lng');
-const { parseXliff, translatedPairs, isMissingTranslation, updateMissingTranslations } = require('./src/xliff');
+const {
+    parseXliff,
+    translatedPairs,
+    isMissingTranslation,
+    updateMissingTranslations,
+    detectSourceChanges,
+    flagSourceChangedUnits
+} = require('./src/xliff');
 const { translateItems, chooseAiModelCommand } = require('./src/ai');
 const { LanguageMapEditorProvider } = require('./src/editor');
 const { resolveKnownTranslationForUnit } = require('./src/resolver');
+const { findDuplicateIds, findDuplicateGeneratorNotes, findMaxWidthViolations } = require('./src/validate');
+const { mergeTranslationUnits } = require('./src/merge');
 
 function activate(context) {
     context.subscriptions.push(
@@ -14,9 +23,11 @@ function activate(context) {
         vscode.commands.registerCommand('bcXliffLanguageMap.buildMaps', () => buildMaps()),
         vscode.commands.registerCommand('bcXliffLanguageMap.fillMissing', () => fillMissingTranslations()),
         vscode.commands.registerCommand('bcXliffLanguageMap.fillMissingCurrent', uri => fillMissingTranslations(uri)),
-        vscode.commands.registerCommand('bcXliffLanguageMap.selectAiModel', () => chooseAiModelCommand())
+        vscode.commands.registerCommand('bcXliffLanguageMap.selectAiModel', () => chooseAiModelCommand()),
+        vscode.commands.registerCommand('bcXliffLanguageMap.mergeTranslations', () => mergeTranslations())
     );
 }
+
 
 async function findTranslationFiles(singleUri) {
     if (singleUri && singleUri.fsPath && singleUri.fsPath.toLowerCase().endsWith('.xlf')) {
@@ -36,9 +47,14 @@ async function buildMaps(singleUri) {
         return;
     }
 
+    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+    const checkDuplicateIds = config.get('validation.checkDuplicateIds', true);
+
     let createdOrUpdated = 0;
     let pairCount = 0;
     let conflictCount = 0;
+    const skippedFiles = [];
+    const failedFiles = [];
 
     await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
@@ -49,25 +65,33 @@ async function buildMaps(singleUri) {
             if (token.isCancellationRequested) break;
             const uri = files[i];
             progress.report({ message: path.basename(uri.fsPath), increment: 100 / files.length });
-            const xlfText = await readText(uri);
-            const parsed = parseXliff(xlfText);
-            const language = parsed.targetLanguage || inferLanguageFromFilename(uri.fsPath);
-            if (!language) continue;
+            try {
+                const xlfText = await readText(uri);
+                const parsed = parseXliff(xlfText);
+                const language = parsed.targetLanguage || inferLanguageFromFilename(uri.fsPath);
+                if (!language) continue;
 
-            const pairs = translatedPairs(parsed, { treatNeedsTranslationAsMissing: true });
-            const mapUri = getMapUri(uri, language);
-            const existing = await readLngIfExists(mapUri);
-            const merged = mergeEntries(existing.entries, pairs.entries, { overwrite: true });
-            await writeText(mapUri, serializeLng(merged.entries, language));
-            createdOrUpdated++;
-            pairCount += pairs.entries.length;
-            conflictCount += pairs.conflicts.length + merged.conflicts.length;
+                if (checkDuplicateIds && hasStructuralViolations(parsed, uri, skippedFiles)) continue;
+
+                const pairs = translatedPairs(parsed, { treatNeedsTranslationAsMissing: true });
+                const mapUri = getMapUri(uri, language);
+                const existing = await readLngIfExists(mapUri);
+                const merged = mergeEntries(existing.entries, pairs.entries, { overwrite: true });
+                await writeText(mapUri, serializeLng(merged.entries, language));
+                createdOrUpdated++;
+                pairCount += pairs.entries.length;
+                conflictCount += pairs.conflicts.length + merged.conflicts.length;
+            } catch (err) {
+                failedFiles.push({ uri, message: formatWriteError(err) });
+            }
         }
     });
 
     const suffix = conflictCount ? ` ${conflictCount} conflicting duplicate source value(s) were detected.` : '';
     vscode.window.showInformationMessage(`BC XLIFF Language Map: ${createdOrUpdated} map file(s) updated from ${pairCount} translated source pair(s).${suffix}`);
+    reportSkippedAndFailed(skippedFiles, failedFiles);
 }
+
 
 async function fillMissingTranslations(singleUri) {
     const files = await findTranslationFiles(singleUri);
@@ -79,14 +103,26 @@ async function fillMissingTranslations(singleUri) {
     const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
     const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
     const setTranslatedState = config.get('setTranslatedState', true);
+    const checkDuplicateIds = config.get('validation.checkDuplicateIds', true);
+    const checkMaxWidth = config.get('validation.checkMaxWidth', true);
+    const sourceChangeEnabled = config.get('sourceChangeDetection.enabled', true);
+    const fuzzyOptions = {
+        enabled: config.get('fuzzyMatch.enabled', false),
+        minimumQuality: config.get('fuzzyMatch.minimumQuality', 80)
+    };
 
     let mapHits = 0;
     let commentHits = 0;
+    let fuzzyHits = 0;
     let aiHits = 0;
     let stillMissing = 0;
+    let maxWidthViolationCount = 0;
+    let sourceChangedCount = 0;
     const changedFileKeys = new Set();
     const commentConflictKeys = new Set();
     const mapConflictKeys = new Set();
+    const skippedFiles = [];
+    const failedFiles = [];
     const workItems = [];
 
     // Phase 1 is strictly deterministic and is completed before AI is even
@@ -103,10 +139,19 @@ async function fillMissingTranslations(singleUri) {
             const uri = files[fileIndex];
             progress.report({ message: path.basename(uri.fsPath), increment: 100 / files.length });
 
-            const originalText = await readText(uri);
-            const parsed = parseXliff(originalText);
+            let originalText;
+            let parsed;
+            try {
+                originalText = await readText(uri);
+                parsed = parseXliff(originalText);
+            } catch (err) {
+                failedFiles.push({ uri, message: formatWriteError(err) });
+                continue;
+            }
             const language = parsed.targetLanguage || inferLanguageFromFilename(uri.fsPath);
             if (!language) continue;
+
+            if (checkDuplicateIds && hasStructuralViolations(parsed, uri, skippedFiles)) continue;
 
             const mapUri = getMapUri(uri, language);
             const existingMap = await readLngIfExists(mapUri);
@@ -126,14 +171,26 @@ async function fillMissingTranslations(singleUri) {
                 for (const unit of units) {
                     // Fixed priority for this exact trans-unit:
                     // 1. Developer comment
-                    // 2. companion .lng
+                    // 2. companion .lng (exact match)
+                    // 3. companion .lng (fuzzy/similarity match, opt-in, flagged for review)
                     // AI is intentionally not part of this phase.
-                    const resolved = resolveKnownTranslationForUnit(unit, units, language, companionMap);
+                    const resolved = resolveKnownTranslationForUnit(unit, units, language, companionMap, fuzzyOptions);
                     if (resolved.commentConflict) {
                         commentConflictKeys.add(`${uri.toString()}\u0000${source}`);
                     }
 
                     if (!resolved.translation) continue;
+
+                    if (resolved.source === 'fuzzy') {
+                        translationByOrdinal.set(unit.ordinal, {
+                            text: resolved.translation,
+                            review: true,
+                            note: `Fuzzy match (${resolved.quality}%) from "${resolved.matchedSource}". Please review.`
+                        });
+                        fuzzyHits++;
+                        // Unconfirmed fuzzy matches must not pollute the .lng translation memory.
+                        continue;
+                    }
 
                     translationByOrdinal.set(unit.ordinal, resolved.translation);
                     addSourceCandidate(sourceCandidates, source, resolved.translation);
@@ -145,24 +202,31 @@ async function fillMissingTranslations(singleUri) {
             // Write all deterministic XLIFF results before deciding whether AI
             // is necessary. This is what makes the later AI count a true
             // remainder instead of an estimate made before local lookup work.
-            const deterministicUpdate = updateMissingTranslations(originalText, new Map(), {
-                treatNeedsTranslationAsMissing,
-                setTranslatedState,
-                translationByOrdinal
-            });
-            const deterministicText = deterministicUpdate.text;
-            if (deterministicUpdate.updatedCount > 0) {
-                await writeText(uri, deterministicText);
-                changedFileKeys.add(uri.toString());
-            }
+            let deterministicText;
+            let mapMerged;
+            try {
+                const deterministicUpdate = updateMissingTranslations(originalText, new Map(), {
+                    treatNeedsTranslationAsMissing,
+                    setTranslatedState,
+                    translationByOrdinal
+                });
+                deterministicText = deterministicUpdate.text;
+                if (deterministicUpdate.updatedCount > 0) {
+                    await writeText(uri, deterministicText);
+                    changedFileKeys.add(uri.toString());
+                }
 
-            const deterministicAdditions = collectUnambiguousMapAdditions(
-                sourceCandidates,
-                uri,
-                mapConflictKeys
-            );
-            const mapMerged = mergeEntries(seeded.entries, deterministicAdditions, { overwrite: true });
-            await writeText(mapUri, serializeLng(mapMerged.entries, language));
+                const deterministicAdditions = collectUnambiguousMapAdditions(
+                    sourceCandidates,
+                    uri,
+                    mapConflictKeys
+                );
+                mapMerged = mergeEntries(seeded.entries, deterministicAdditions, { overwrite: true });
+                await writeText(mapUri, serializeLng(mapMerged.entries, language));
+            } catch (err) {
+                failedFiles.push({ uri, message: formatWriteError(err) });
+                continue;
+            }
 
             // Reparse the already-updated XLIFF and derive the AI work only
             // from what is *still* missing now. Comment/.lng hits can therefore
@@ -294,7 +358,35 @@ async function fillMissingTranslations(singleUri) {
     }
 
     for (const work of workItems) {
-        const finalParsed = parseXliff(work.currentText);
+        let finalText = work.currentText;
+        let finalParsed = parseXliff(finalText);
+
+        if (sourceChangeEnabled) {
+            try {
+                const siblingUri = await findSiblingGxlf(work.uri);
+                if (siblingUri) {
+                    const sourceParsed = parseXliff(await readText(siblingUri));
+                    const changedIds = detectSourceChanges(finalParsed, sourceParsed);
+                    if (changedIds.size) {
+                        const flagged = flagSourceChangedUnits(finalText, changedIds);
+                        if (flagged.flaggedCount > 0) {
+                            finalText = flagged.text;
+                            finalParsed = parseXliff(finalText);
+                            await writeText(work.uri, finalText);
+                            changedFileKeys.add(work.uri.toString());
+                            sourceChangedCount += flagged.flaggedCount;
+                        }
+                    }
+                }
+            } catch (err) {
+                failedFiles.push({ uri: work.uri, message: formatWriteError(err) });
+            }
+        }
+
+        if (checkMaxWidth) {
+            maxWidthViolationCount += findMaxWidthViolations(finalParsed).length;
+        }
+
         stillMissing += finalParsed.units.filter(unit =>
             isMissingTranslation(unit, treatNeedsTranslationAsMissing)
         ).length;
@@ -309,10 +401,106 @@ async function fillMissingTranslations(singleUri) {
     const mapConflictText = mapConflictKeys.size
         ? ` ${mapConflictKeys.size} source(s) had context-specific translations and were therefore not collapsed into a single .lng entry.`
         : '';
+    const fuzzyText = fuzzyHits ? `, ${fuzzyHits} fuzzy-match translation(s) flagged for review` : '';
+    const maxWidthText = maxWidthViolationCount ? ` ${maxWidthViolationCount} target(s) exceed their maxwidth.` : '';
+    const sourceChangedText = sourceChangedCount ? ` ${sourceChangedCount} trans-unit(s) flagged needs-l10n because the source text changed.` : '';
 
     vscode.window.showInformationMessage(
-        `BC XLIFF Language Map: ${changedFileKeys.size} XLIFF file(s) changed; ${commentHits} Developer-comment translation(s), ${mapHits} translation-memory hit(s), ${aiHits} AI translation(s), ${stillMissing} trans-unit(s) still missing.${aiStatus}${commentConflictText}${mapConflictText}`
+        `BC XLIFF Language Map: ${changedFileKeys.size} XLIFF file(s) changed; ${commentHits} Developer-comment translation(s), ${mapHits} translation-memory hit(s)${fuzzyText}, ${aiHits} AI translation(s), ${stillMissing} trans-unit(s) still missing.${aiStatus}${commentConflictText}${mapConflictText}${maxWidthText}${sourceChangedText}`
     );
+    reportSkippedAndFailed(skippedFiles, failedFiles);
+}
+
+async function findSiblingGxlf(uri) {
+    const folder = path.dirname(uri.fsPath);
+    const found = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, '*.g.xlf'), undefined, 1);
+    return found[0];
+}
+
+// Duplicate trans-unit ids or duplicate "Xliff Generator" notes corrupt
+// id-based matching; the affected file is skipped rather than partially fixed.
+function hasStructuralViolations(parsed, uri, skippedFiles) {
+    const duplicateIds = findDuplicateIds(parsed);
+    const duplicateNotes = findDuplicateGeneratorNotes(parsed);
+    if (!duplicateIds.length && !duplicateNotes.length) return false;
+    skippedFiles.push({ uri, duplicateIds, duplicateNotes });
+    return true;
+}
+
+function formatWriteError(err) {
+    const code = err && err.code;
+    if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
+        return `${formatError(err)} (the file may be open or locked by another process)`;
+    }
+    return formatError(err);
+}
+
+function reportSkippedAndFailed(skippedFiles, failedFiles) {
+    if (skippedFiles.length) {
+        const details = skippedFiles.map(entry => {
+            const reasons = [];
+            if (entry.duplicateIds.length) reasons.push(`duplicate id(s): ${entry.duplicateIds.join(', ')}`);
+            if (entry.duplicateNotes.length) reasons.push(`duplicate Xliff Generator note(s)`);
+            return `${path.basename(entry.uri.fsPath)} (${reasons.join('; ')})`;
+        });
+        vscode.window.showWarningMessage(
+            `BC XLIFF Language Map: ${skippedFiles.length} file(s) skipped due to structural issues: ${details.join(', ')}`
+        );
+    }
+    if (failedFiles.length) {
+        const details = failedFiles.map(entry => `${path.basename(entry.uri.fsPath)}: ${entry.message}`);
+        vscode.window.showWarningMessage(
+            `BC XLIFF Language Map: ${failedFiles.length} file(s) could not be read or written: ${details.join(', ')}`
+        );
+    }
+}
+
+async function mergeTranslations() {
+    const files = await findTranslationFiles();
+    if (files.length < 2) {
+        vscode.window.showInformationMessage('BC XLIFF Language Map: need at least two translation XLIFF files to merge.');
+        return;
+    }
+
+    const fromPick = await vscode.window.showQuickPick(
+        files.map(uri => ({ label: path.basename(uri.fsPath), description: uri.fsPath, uri })),
+        { placeHolder: 'Merge FROM which XLIFF file?' }
+    );
+    if (!fromPick) return;
+
+    const toPick = await vscode.window.showQuickPick(
+        files.filter(uri => uri.toString() !== fromPick.uri.toString())
+            .map(uri => ({ label: path.basename(uri.fsPath), description: uri.fsPath, uri })),
+        { placeHolder: 'Merge INTO which XLIFF file?' }
+    );
+    if (!toPick) return;
+
+    const modePick = await vscode.window.showQuickPick([
+        { label: 'Untranslated', description: 'Fill only trans-units with no target text yet', mode: 'untranslated' },
+        { label: 'Overwrite', description: 'Replace the target text of every matched trans-unit', mode: 'overwrite' },
+        { label: 'Add', description: 'Insert whole trans-units that exist in the source file but not in the target file', mode: 'add' }
+    ], { placeHolder: 'Merge mode' });
+    if (!modePick) return;
+
+    try {
+        const sourceText = await readText(fromPick.uri);
+        const targetText = await readText(toPick.uri);
+        const sourceParsed = parseXliff(sourceText);
+        const targetParsed = parseXliff(targetText);
+
+        const result = mergeTranslationUnits(targetText, targetParsed, sourceParsed, modePick.mode);
+        if (result.updatedCount === 0 && result.addedCount === 0) {
+            vscode.window.showInformationMessage('BC XLIFF Language Map: nothing to merge.');
+            return;
+        }
+
+        await writeText(toPick.uri, result.text);
+        vscode.window.showInformationMessage(
+            `BC XLIFF Language Map: merged into ${path.basename(toPick.uri.fsPath)}: ${result.updatedCount} trans-unit(s) updated, ${result.addedCount} trans-unit(s) added.`
+        );
+    } catch (err) {
+        vscode.window.showErrorMessage(`BC XLIFF Language Map: merge failed: ${formatWriteError(err)}`);
+    }
 }
 
 function groupUnitsBySource(units) {

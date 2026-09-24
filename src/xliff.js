@@ -89,6 +89,8 @@ function parseXliff(text) {
         const sourceRaw = sourceMatch[2];
         const effectiveTargetMatch = targetMatch || selfClosingTargetMatch;
         const targetRaw = targetMatch ? targetMatch[2] : (selfClosingTargetMatch ? '' : undefined);
+        const maxWidthAttr = getAttribute(unitAttrs, 'maxwidth');
+        const maxWidth = maxWidthAttr ? parseInt(maxWidthAttr, 10) : undefined;
         units.push({
             ordinal: ordinal++,
             id: getAttribute(unitAttrs, 'id') || '',
@@ -98,6 +100,7 @@ function parseXliff(text) {
             targetRaw,
             targetAttrs: effectiveTargetMatch ? effectiveTargetMatch[1] : '',
             targetState: effectiveTargetMatch ? getAttribute(effectiveTargetMatch[1], 'state') : undefined,
+            maxWidth: Number.isFinite(maxWidth) ? maxWidth : undefined,
             notes,
             noteDetails,
             raw: match[0]
@@ -228,19 +231,24 @@ function updateMissingTranslations(text, translationBySource, options = {}) {
         // A translation attached to this exact trans-unit always wins. This is
         // required for Developer comments because the same English source text
         // may intentionally have different translations in different contexts.
+        // A value may be a plain string (accepted translation) or an object
+        // { text, review, note } for fuzzy matches that still need human review.
         const unitTranslation = translationByOrdinal.get(ordinal);
         const sourceTranslation = translationBySource instanceof Map
             ? translationBySource.get(parsed.source)
             : undefined;
-        const translation = typeof unitTranslation === 'string'
-            ? unitTranslation
-            : sourceTranslation;
+        const entry = unitTranslation !== undefined ? unitTranslation : sourceTranslation;
+        const translation = typeof entry === 'string' ? entry : (entry && entry.text);
+        const review = Boolean(entry && typeof entry === 'object' && entry.review);
+        const note = entry && typeof entry === 'object' ? entry.note : undefined;
 
         if (typeof translation !== 'string' || translation.length === 0) {
             return unitRaw;
         }
         updatedCount++;
-        return setTarget(unitRaw, translation, eol, setTranslatedState);
+        const updated = setTarget(unitRaw, translation, eol, setTranslatedState && !review);
+        const withState = review ? setTargetState(updated, 'needs-review-translation') : updated;
+        return note ? appendSyncNote(withState, note, eol) : withState;
     });
 
     return { text: result, updatedCount };
@@ -290,6 +298,80 @@ function setTarget(unitRaw, translation, eol, setTranslatedState) {
     return unitRaw.replace(sourceRe, `$1${eol}${indent}${target}`);
 }
 
+const SYNC_NOTE_FROM = 'BC.XliffMap';
+
+// Compares an already-translated target file against its generator (.g.xlf)
+// source by trans-unit id and returns the ids whose source text drifted
+// since the last translation, mirroring BC.SyncXlf's needs-l10n detection.
+function detectSourceChanges(targetParsed, sourceParsed) {
+    const sourceById = new Map(sourceParsed.units.map(unit => [unit.id, unit]));
+    const changed = new Map();
+    for (const unit of targetParsed.units) {
+        if (!unit.id || !unit.target) continue;
+        const sourceUnit = sourceById.get(unit.id);
+        if (!sourceUnit) continue;
+        if (sourceUnit.source !== unit.source) {
+            changed.set(unit.id, { oldSource: unit.source, newSource: sourceUnit.source });
+        }
+    }
+    return changed;
+}
+
+// Sets state="needs-l10n" and appends a review note for every trans-unit id
+// present in changedIds. Idempotent: a unit already carrying the sync note is
+// left untouched.
+function flagSourceChangedUnits(text, changedIds) {
+    if (!changedIds || changedIds.size === 0) {
+        return { text, flaggedCount: 0 };
+    }
+    const eol = text.includes('\r\n') ? '\r\n' : '\n';
+    let flaggedCount = 0;
+
+    const result = text.replace(/<trans-unit\b([^>]*)>([\s\S]*?)<\/trans-unit>/gi, (unitRaw, unitAttrs) => {
+        const id = getAttribute(unitAttrs, 'id') || '';
+        if (!changedIds.has(id)) {
+            return unitRaw;
+        }
+        if (new RegExp(`from\\s*=\\s*["']${escapeRegExp(SYNC_NOTE_FROM)}["']`, 'i').test(unitRaw)) {
+            return unitRaw;
+        }
+        flaggedCount++;
+        const withState = setTargetState(unitRaw, 'needs-l10n');
+        return appendSyncNote(withState, 'The source text changed. Review the translation.', eol);
+    });
+
+    return { text: result, flaggedCount };
+}
+
+function setTargetState(unitRaw, state) {
+    const targetRe = /<target\b([^>]*)>([\s\S]*?)<\/target>/i;
+    const selfClosingTargetRe = /<target\b([^>]*)\/\s*>/i;
+    const targetMatch = unitRaw.match(targetRe);
+    if (targetMatch) {
+        const attrs = setAttribute(targetMatch[1] || '', 'state', state);
+        return unitRaw.replace(targetRe, `<target${attrs}>${targetMatch[2]}</target>`);
+    }
+    const selfClosingMatch = unitRaw.match(selfClosingTargetRe);
+    if (selfClosingMatch) {
+        const attrs = setAttribute(selfClosingMatch[1] || '', 'state', state);
+        return unitRaw.replace(selfClosingTargetRe, `<target${attrs}/>`);
+    }
+    return unitRaw;
+}
+
+function appendSyncNote(unitRaw, noteText, eol) {
+    const targetCloseRe = /(<target\b[^>]*>[\s\S]*?<\/target>|<target\b[^>]*\/\s*>)/i;
+    const targetMatch = unitRaw.match(targetCloseRe);
+    if (!targetMatch) {
+        return unitRaw;
+    }
+    const beforeTarget = unitRaw.slice(0, targetMatch.index);
+    const indentMatch = beforeTarget.match(/(?:^|\r?\n)([ \t]*)$/);
+    const indent = indentMatch ? indentMatch[1] : '          ';
+    const note = `<note from="${SYNC_NOTE_FROM}" annotates="general" priority="1">${encodeXmlText(noteText)}</note>`;
+    return unitRaw.replace(targetCloseRe, `$1${eol}${indent}${note}`);
+}
+
 function extractPlaceholders(text) {
     const matches = String(text).match(/%\d+|#\d+|\\[nrt]|\{\{?[^{}]+\}?\}/g) || [];
     return matches.sort();
@@ -318,5 +400,7 @@ module.exports = {
     placeholdersMatch,
     parseCommentTranslations,
     getDeveloperCommentTranslation,
-    getDeveloperCommentTranslationForUnits
+    getDeveloperCommentTranslationForUnits,
+    detectSourceChanges,
+    flagSourceChangedUnits
 };
