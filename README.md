@@ -1,8 +1,18 @@
 # BC XLIFF Language Map
 
+### Visual XLIFF editing workflow
+
+The visual editor uses an explicit staging workflow: **⇄ Sync → ? Try Translation / AI → review drafts → ✓ Apply Drafts → translated**. Try/AI actions and manual Translation edits do not modify the XLIFF immediately. All staged changes stay visible until **✓ Apply Drafts** writes them together as `translated`; leaving a field never saves or changes status.
+
+The visual editor paginates XLIFF rows and renders only the current page. Page size can be set to **50**, **100**, or **200** entries. A loading overlay is shown whenever a new XLIFF state is read/prepared or a page must be recomputed after paging, filtering, sorting, or changing the page size; the overlay shows the current stage and `loaded / total` progress.
+
+**⇄ Sync** also creates/updates the companion `.lng`. Confirmed translations from the pre-sync XLIFF are preserved first, so an old source remains available to fuzzy matching after the generator changes that source.
+
+The quick category filters **Missing**, **Review**, **Proposals**, **Drafts**, and **Placeholder errors** are OR-combined. Global search and per-column filters still narrow the result in addition to that category selection.
+
 ## Installation
 
-Install `bc-xliff-language-map-1.0.11.vsix` with **Extensions: Install from VSIX...** in the VS Code Command Palette. No npm dependencies are required at runtime.
+Install `bc-xliff-language-map-1.1.10.vsix` with **Extensions: Install from VSIX...** in the VS Code Command Palette. No npm dependencies are required at runtime.
 
 VS Code extension for Microsoft Dynamics 365 Business Central AL projects. It keeps a translation-memory file next to each non-generated XLIFF translation file and can restore translations after XLIFF ids change.
 
@@ -49,6 +59,66 @@ Files named `*.<language>.lng` open with **BC Language Map Editor**. The editor 
 
 Use **Reopen Editor With...** if you want to inspect the raw text instead.
 
+
+## Visual XLIFF editor
+
+Files ending in `.xlf` open with **BC XLIFF Editor**. Translation XLIFF files are editable; generated `.g.xlf` files (and XLIFF files without a `target-language`) are deliberately read-only. Use **</>** or **Reopen Editor With...** to inspect the raw XML.
+
+The editor is designed around an explicit review workflow:
+
+`⇄ Sync → ? Try Translation / AI → review staged drafts → ✓ Apply Drafts → translated`
+
+### 1. Synchronize
+
+**⇄ Sync** synchronizes the current translation XLIFF with the matching sibling `.g.xlf`. It updates changed Source values, adds generator trans-units that are missing from the translation file **at the same position/order as in the `.g.xlf`**, preserves obsolete translation units after the current generator units, and marks preserved targets for review when their Source changed. Existing translations stay attached to their trans-unit while all current units are reordered to match the generated base file. Synchronization is structural only: it never performs translation lookup and never creates proposals.
+
+### 2. Try Translation
+
+**? Try Translation** processes all currently missing targets. Each row also has a **? Try** button for the same workflow on only that trans-unit. Nothing is written to the XLIFF during this phase:
+
+1. explicit Developer-comment translation → staged as an editable **Translation draft**;
+2. exact companion `.lng` match → staged as an editable **Translation draft**;
+3. optional fuzzy `.lng` match → staged in **Proposed translation** for review;
+4. if still unresolved, the editor asks whether AI may be used; an AI result is staged in **Proposed translation**.
+
+The whole-file AI question contains only the rows that genuinely reached the AI stage. Fuzzy proposals are not sent to AI. The per-row **AI** button is an explicit AI-only staging action and also never modifies the XLIFF by itself.
+
+### 3. Review proposals and drafts
+
+The narrow column between Translation and Proposed translation contains a monochrome **←** button. It moves a valid proposal into the editable **Translation draft** field and removes the proposal, but still does **not** change the XLIFF or status. **← Proposals to Drafts** performs the same staging move for all currently visible valid proposals.
+
+Proposal text itself is editable. Placeholder mismatches are shown in red. A proposal may also remain in the Proposal column: **✓ Apply Drafts** can commit it directly without requiring the `←` move first.
+
+### 4. Apply staged changes
+
+Translation textareas are draft-based. Typing, tabbing away, clicking elsewhere, or leaving the field does **not** write to the XLIFF and does **not** alter the status. Try/AI results are staged in the same review session.
+
+- **✓ Apply Drafts** is the single commit point for all staged Translation drafts and Proposal drafts. Every valid, non-empty staged translation is written to the XLIFF as `state="translated"` and added to the companion `.lng` translation memory.
+- Rows with placeholder mismatches or empty staged values are skipped and remain visible for correction.
+- **↶** discards one manual Translation draft; **↶ Discard Drafts** discards all staged Translation and Proposal drafts.
+- `Escape` discards the current manual Translation draft. There is no per-row save/commit shortcut.
+- The editor blocks Sync, Try Translation, and switching to raw XML while staged changes exist so a review set cannot be lost accidentally.
+
+Status changes outside this staging workflow remain explicit. Rows with an already persisted `state="needs-review-translation"` additionally show **✓ Review**, which confirms a valid existing target as `translated`. Completed states (`translated`, `signed-off`, `final`) cannot be assigned to empty or placeholder-invalid persisted targets.
+
+### Navigation, filtering and validation
+
+The table shows **Source**, **Translation**, **Proposed translation**, **Status**, **Notes**, and actions. Every data column has its own contains-filter and sortable header. Sorting only changes the view and never reorders XLIFF trans-units. A global search covers Source, Translation, Proposal, Status, Notes, id and proposal origin. Quick filters are available for **Missing**, **Review**, **Proposals**, **Drafts**, and **Placeholder errors**. **Drafts** includes any staged Translation or Proposal change; the **Proposals** filter is the narrower subset for rows that still have a proposal.
+
+Per row, **⌕** opens VS Code workspace search for the exact English Source. All workflow symbols are plain text and inherit the VS Code foreground color; no colored icon assets are used.
+
+Large XLIFF files use pagination instead of rendering every trans-unit at once. Use the page-size selector for **50 / 100 / 200** entries and the `« ‹ page / pages › »` controls to move through the filtered/sorted result. The summary shows the current range (for example `101–200 of 437 filtered · 8,420 total`). Paging, filter/sort changes and document reloads show the loading overlay while the new page is prepared and rendered.
+
+Additional safeguards:
+
+- `translate="no"` units are visible but cannot be edited or sent to AI.
+- Source/Translation and Source/Proposal placeholders (`%1`, `%2`, `#1`, escaped control sequences and brace placeholders) are compared. Mismatches are displayed in red per row.
+- `maxwidth` is shown as `current length / maxwidth`; violations are highlighted.
+- Duplicate trans-unit ids and duplicate `Xliff Generator` notes are surfaced as warnings.
+- `.g.xlf` files are read-only in the visual editor.
+- **↻** refreshes the view without generating proposals.
+
+
 ## Commands
 
 - `BC XLIFF: Build/Update Language Maps`
@@ -56,6 +126,7 @@ Use **Reopen Editor With...** if you want to inspect the raw text instead.
 - `BC XLIFF: Fill Missing Translations in Current File`
 - `BC XLIFF: Select Translation AI Model`
 - `BC XLIFF: Merge Translations Between Files`
+- `BC XLIFF: Open Visual XLIFF Editor`
 
 ## AI behavior
 

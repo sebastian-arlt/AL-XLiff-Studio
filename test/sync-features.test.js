@@ -256,3 +256,76 @@ test('duplicate id and generator-note validation can be configured independently
     assert.equal(props['bcXliffLanguageMap.validation.checkDuplicateIds'].default, true);
     assert.equal(props['bcXliffLanguageMap.validation.checkDuplicateGeneratorNotes'].default, true);
 });
+
+test('synchronizeTranslationUnits updates sources, adds new units and keeps obsolete units', () => {
+    const { synchronizeTranslationUnits } = require('../src/synchronize');
+    const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="A"><source>Old text</source><target state="translated">Alter Text</target></trans-unit>
+<trans-unit id="OLD"><source>Obsolete</source><target state="translated">Alt</target></trans-unit>
+</group></body></file></xliff>`;
+    const sourceText = `<xliff><file source-language="en-US"><body><group>
+<trans-unit id="A"><source>New text</source><note from="Xliff Generator">A context</note></trans-unit>
+<trans-unit id="B"><source>Brand new</source><note from="Developer">DEU=Ganz neu</note></trans-unit>
+</group></body></file></xliff>`;
+    const result = synchronizeTranslationUnits(targetText, sourceText);
+    assert.equal(result.synchronizedSources, 1);
+    assert.equal(result.flaggedTargets, 1);
+    assert.equal(result.addedUnits, 1);
+    assert.equal(result.obsoleteUnits.length, 1);
+    assert.match(result.text, /<source>New text<\/source>/);
+    assert.match(result.text, /state="needs-l10n">Alter Text<\/target>/);
+    assert.match(result.text, /id="B"/);
+    assert.match(result.text, /<target state="needs-translation"\/>/);
+    assert.match(result.text, /DEU=Ganz neu/);
+    assert.match(result.text, /id="OLD"/);
+});
+
+test('synchronizeTranslationUnits follows generator trans-unit order instead of appending new units', () => {
+    const { synchronizeTranslationUnits } = require('../src/synchronize');
+    const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="C"><source>C</source><target state="translated">C-DE</target></trans-unit>
+<trans-unit id="A"><source>A</source><target state="translated">A-DE</target></trans-unit>
+<trans-unit id="OLD"><source>Old</source><target state="translated">Alt</target></trans-unit>
+</group></body></file></xliff>`;
+    const sourceText = `<xliff><file source-language="en-US"><body><group>
+<trans-unit id="A"><source>A</source></trans-unit>
+<trans-unit id="B"><source>B</source></trans-unit>
+<trans-unit id="C"><source>C</source></trans-unit>
+</group></body></file></xliff>`;
+
+    const result = synchronizeTranslationUnits(targetText, sourceText);
+    const positions = ['id="A"', 'id="B"', 'id="C"', 'id="OLD"'].map(token => result.text.indexOf(token));
+
+    assert.ok(positions.every(position => position >= 0));
+    assert.ok(positions[0] < positions[1]);
+    assert.ok(positions[1] < positions[2]);
+    assert.ok(positions[2] < positions[3]);
+    assert.match(result.text, /id="A"[\s\S]*?<target state="translated">A-DE<\/target>/);
+    assert.match(result.text, /id="B"[\s\S]*?<target state="needs-translation"\/>/);
+    assert.match(result.text, /id="C"[\s\S]*?<target state="translated">C-DE<\/target>/);
+});
+
+test('replaceTranslationUnitSequence keeps generator-positioned missing units between existing translations', () => {
+    const { synchronizeTranslationUnits } = require('../src/synchronize');
+    const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+        <trans-unit id="A"><source>A</source><target>AA</target></trans-unit>
+        <trans-unit id="D"><source>D</source><target>DD</target></trans-unit>
+    </group></body></file></xliff>`;
+    const sourceText = `<xliff><file source-language="en-US"><body><group>
+        <trans-unit id="A"><source>A</source></trans-unit>
+        <trans-unit id="B"><source>B</source></trans-unit>
+        <trans-unit id="C"><source>C</source></trans-unit>
+        <trans-unit id="D"><source>D</source></trans-unit>
+    </group></body></file></xliff>`;
+
+    const result = synchronizeTranslationUnits(targetText, sourceText);
+    const ids = [...result.text.matchAll(/<trans-unit\b[^>]*id="([^"]+)"/g)].map(match => match[1]);
+    assert.deepEqual(ids, ['A', 'B', 'C', 'D']);
+});
+
+test('synchronizeTranslationUnits blocks source-language mismatch', () => {
+    const { synchronizeTranslationUnits } = require('../src/synchronize');
+    const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group><trans-unit id="A"><source>A</source></trans-unit></group></body></file></xliff>`;
+    const sourceText = `<xliff><file source-language="de-DE"><body><group><trans-unit id="A"><source>A</source></trans-unit></group></body></file></xliff>`;
+    assert.throws(() => synchronizeTranslationUnits(targetText, sourceText), /Source languages differ/);
+});

@@ -236,3 +236,55 @@ test('unit-specific translations can update identical source texts independently
     assert.match(result.text, /<trans-unit id="A">[\s\S]*?<target state="translated">Debitornummer<\/target>/);
     assert.match(result.text, /<trans-unit id="B">[\s\S]*?<target state="translated">Kundennummer<\/target>/);
 });
+
+test('visual XLIFF editor can update an existing translation and status by ordinal', () => {
+    const { updateTranslationUnit } = require('../src/xliff');
+    const xlf = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="A"><source>Hello</source><target state="needs-translation"/></trans-unit>
+<trans-unit id="B"><source>World</source><target state="translated">Welt</target></trans-unit>
+</group></body></file></xliff>`;
+    const result = updateTranslationUnit(xlf, 0, { translation: 'Hallo', state: 'translated' });
+    assert.equal(result.updatedCount, 1);
+    assert.match(result.text, /<trans-unit id="A">[\s\S]*?<target state="translated">Hallo<\/target>/);
+    assert.match(result.text, /<trans-unit id="B">[\s\S]*?<target state="translated">Welt<\/target>/);
+});
+
+test('visual XLIFF editor removes a target state when no-state is selected', () => {
+    const { updateTranslationUnit } = require('../src/xliff');
+    const xlf = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="A"><source>Hello</source><target state="needs-review-translation">Hallo</target></trans-unit>
+</group></body></file></xliff>`;
+    const result = updateTranslationUnit(xlf, 0, { state: '' });
+    assert.equal(result.updatedCount, 1);
+    assert.match(result.text, /<target>Hallo<\/target>/);
+    assert.doesNotMatch(result.text, /state=/);
+});
+
+test('translate=no units are not considered missing and are protected from visual edits', () => {
+    const { updateTranslationUnit, isMissingTranslation } = require('../src/xliff');
+    const xlf = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="A" translate="no"><source>Do not translate</source><target state="needs-translation"/></trans-unit>
+</group></body></file></xliff>`;
+    const unit = parseXliff(xlf).units[0];
+    assert.equal(unit.translate, 'no');
+    assert.equal(isMissingTranslation(unit, true), false);
+    const result = updateTranslationUnit(xlf, 0, { translation: 'Nicht übersetzen' });
+    assert.equal(result.updatedCount, 0);
+    assert.equal(result.text, xlf);
+});
+
+
+test('visual XLIFF editor can attach a fuzzy review note while filling one unit', () => {
+    const { updateTranslationUnit, parseXliff } = require('../src/xliff');
+    const input = `<?xml version="1.0" encoding="utf-8"?>\n<xliff version="1.2"><file source-language="en-US" target-language="de-DE"><body>\n<trans-unit id="A"><source>Customer No.</source><target state="needs-translation"/></trans-unit>\n</body></file></xliff>`;
+    const result = updateTranslationUnit(input, 0, {
+        translation: 'Debitornummer',
+        state: 'needs-review-translation',
+        note: 'Fuzzy match (91%) from "Customer Number". Please review.'
+    });
+    const parsed = parseXliff(result.text);
+    assert.equal(parsed.units[0].target, 'Debitornummer');
+    assert.equal(parsed.units[0].targetState, 'needs-review-translation');
+    assert.match(result.text, /from="BC\.XliffMap"/);
+    assert.match(result.text, /Fuzzy match \(91%\)/);
+});

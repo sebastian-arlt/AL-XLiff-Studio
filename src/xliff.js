@@ -100,6 +100,7 @@ function parseXliff(text) {
             targetRaw,
             targetAttrs: effectiveTargetMatch ? effectiveTargetMatch[1] : '',
             targetState: effectiveTargetMatch ? getAttribute(effectiveTargetMatch[1], 'state') : undefined,
+            translate: getAttribute(unitAttrs, 'translate'),
             maxWidth: Number.isFinite(maxWidth) ? maxWidth : undefined,
             notes,
             noteDetails,
@@ -191,6 +192,9 @@ function isReviewTranslation(unit) {
 }
 
 function isMissingTranslation(unit, treatNeedsTranslationAsMissing = true) {
+    if (unit && String(unit.translate || '').trim().toLowerCase() === 'no') {
+        return false;
+    }
     if (unit.target === undefined || unit.target.length === 0) {
         return true;
     }
@@ -217,7 +221,7 @@ function translatedPairs(parsed, options = {}) {
         // Translation-memory entries must be confirmed translations. Targets
         // that still need adaptation/review/l10n are intentionally excluded so
         // fuzzy, merge, or source-change candidates cannot pollute the .lng.
-        if (!unit.source || !unit.target || isMissingTranslation(unit, treatNeedsTranslationAsMissing) || isReviewTranslation(unit)) {
+        if (!unit.source || !unit.target || String(unit.translate || '').trim().toLowerCase() === 'no' || isMissingTranslation(unit, treatNeedsTranslationAsMissing) || isReviewTranslation(unit)) {
             continue;
         }
         if (bySource.has(unit.source) && bySource.get(unit.source) !== unit.target) {
@@ -407,20 +411,75 @@ function setSourceRaw(unitRaw, sourceRaw) {
     return unitRaw.replace(sourceRe, `$1${sourceRaw}$3`);
 }
 
+function removeAttribute(attrs, name) {
+    const re = new RegExp(`\\s*\\b${escapeRegExp(name)}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i');
+    return String(attrs || '').replace(re, '');
+}
+
 function setTargetState(unitRaw, state) {
     const targetRe = /<target\b([^>]*)>([\s\S]*?)<\/target>/i;
     const selfClosingTargetRe = /<target\b([^>]*)\/\s*>/i;
     const targetMatch = unitRaw.match(targetRe);
+    const applyState = attrs => state === undefined || state === null || state === ''
+        ? removeAttribute(attrs, 'state')
+        : setAttribute(attrs, 'state', state);
     if (targetMatch) {
-        const attrs = setAttribute(targetMatch[1] || '', 'state', state);
+        const attrs = applyState(targetMatch[1] || '');
         return unitRaw.replace(targetRe, `<target${attrs}>${targetMatch[2]}</target>`);
     }
     const selfClosingMatch = unitRaw.match(selfClosingTargetRe);
     if (selfClosingMatch) {
-        const attrs = setAttribute(selfClosingMatch[1] || '', 'state', state);
+        const attrs = applyState(selfClosingMatch[1] || '');
         return unitRaw.replace(selfClosingTargetRe, `<target${attrs}/>`);
     }
     return unitRaw;
+}
+
+/**
+ * Updates one trans-unit by its parse ordinal. This is used by the visual XLIFF
+ * editor and deliberately works for both missing and already translated units.
+ * Editing translation text implies a human-confirmed state unless a state is
+ * supplied explicitly. Clearing the text returns the unit to needs-translation.
+ */
+function updateTranslationUnit(text, ordinal, changes = {}) {
+    const eol = text.includes('\r\n') ? '\r\n' : '\n';
+    let currentOrdinal = 0;
+    let updatedCount = 0;
+    const hasTranslation = Object.prototype.hasOwnProperty.call(changes, 'translation');
+    const hasState = Object.prototype.hasOwnProperty.call(changes, 'state');
+
+    const result = text.replace(/<trans-unit\b([^>]*)>([\s\S]*?)<\/trans-unit>/gi, unitRaw => {
+        const parsed = parseSingleUnit(unitRaw);
+        if (!parsed) return unitRaw;
+        const current = currentOrdinal++;
+        if (current !== ordinal) return unitRaw;
+        if (String(parsed.translate || '').trim().toLowerCase() === 'no') return unitRaw;
+
+        let updated = unitRaw;
+        if (hasTranslation) {
+            const translation = String(changes.translation ?? '');
+            updated = setTarget(updated, translation, eol, false);
+            const state = hasState
+                ? changes.state
+                : (translation.length ? 'translated' : 'needs-translation');
+            updated = setTargetState(updated, state);
+        } else if (hasState) {
+            if (parsed.target === undefined) {
+                updated = setTarget(updated, '', eol, false);
+            }
+            updated = setTargetState(updated, changes.state);
+        }
+
+        const note = typeof changes.note === 'string' ? changes.note.trim() : '';
+        if (note && !hasSpecificSyncNote(updated, note)) {
+            updated = appendSyncNote(updated, note, eol, changes.noteAnnotates || 'general');
+        }
+
+        if (updated !== unitRaw) updatedCount++;
+        return updated;
+    });
+
+    return { text: result, updatedCount };
 }
 
 function hasSpecificSyncNote(unitRaw, notePrefix) {
@@ -478,5 +537,6 @@ module.exports = {
     getDeveloperCommentTranslation,
     getDeveloperCommentTranslationForUnits,
     detectSourceChanges,
-    flagSourceChangedUnits
+    flagSourceChangedUnits,
+    updateTranslationUnit
 };

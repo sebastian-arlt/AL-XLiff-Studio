@@ -1,8 +1,8 @@
 {
   "name": "bc-xliff-language-map",
   "displayName": "BC XLIFF Language Map",
-  "description": "Translation-memory .lng files, XLIFF repair and VS Code AI fallback for Microsoft Dynamics 365 Business Central AL apps.",
-  "version": "1.0.11",
+  "description": "Visual XLIFF/.lng editing, translation memory, XLIFF repair and VS Code AI translation support for Microsoft Dynamics 365 Business Central AL apps.",
+  "version": "1.1.10",
   "publisher": "sebastian-tools",
   "license": "MIT",
   "repository": {
@@ -32,7 +32,9 @@
     "onCommand:bcXliffLanguageMap.fillMissingCurrent",
     "onCommand:bcXliffLanguageMap.selectAiModel",
     "onCommand:bcXliffLanguageMap.mergeTranslations",
-    "onCustomEditor:bcXliffLanguageMap.lngEditor"
+    "onCustomEditor:bcXliffLanguageMap.lngEditor",
+    "onCustomEditor:bcXliffLanguageMap.xlfEditor",
+    "onCommand:bcXliffLanguageMap.openXliffEditor"
   ],
   "contributes": {
     "commands": [
@@ -55,6 +57,10 @@
       {
         "command": "bcXliffLanguageMap.mergeTranslations",
         "title": "BC XLIFF: Merge Translations Between Files"
+      },
+      {
+        "command": "bcXliffLanguageMap.openXliffEditor",
+        "title": "BC XLIFF: Open Visual XLIFF Editor"
       }
     ],
     "menus": {
@@ -63,6 +69,11 @@
           "command": "bcXliffLanguageMap.fillMissingCurrent",
           "when": "resourceExtname == .xlf",
           "group": "navigation@50"
+        },
+        {
+          "command": "bcXliffLanguageMap.openXliffEditor",
+          "when": "resourceExtname == .xlf",
+          "group": "navigation@49"
         }
       ],
       "editor/title/context": [
@@ -70,6 +81,11 @@
           "command": "bcXliffLanguageMap.fillMissingCurrent",
           "when": "resourceExtname == .xlf",
           "group": "navigation@50"
+        },
+        {
+          "command": "bcXliffLanguageMap.openXliffEditor",
+          "when": "resourceExtname == .xlf",
+          "group": "navigation@49"
         }
       ]
     },
@@ -80,6 +96,16 @@
         "selector": [
           {
             "filenamePattern": "*.*-*.lng"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "bcXliffLanguageMap.xlfEditor",
+        "displayName": "BC XLIFF Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.xlf"
           }
         ],
         "priority": "default"

@@ -13,6 +13,7 @@ const {
 } = require('./src/xliff');
 const { translateItems, chooseAiModelCommand } = require('./src/ai');
 const { LanguageMapEditorProvider } = require('./src/editor');
+const { XliffEditorProvider } = require('./src/xlfEditor');
 const { resolveKnownTranslationForUnit } = require('./src/resolver');
 const { findDuplicateIds, findDuplicateGeneratorNotes, findMaxWidthViolations } = require('./src/validate');
 const { mergeTranslationUnits, validateMergeLanguages } = require('./src/merge');
@@ -21,14 +22,29 @@ const { getGeneratorCompanionFilename } = require('./src/paths');
 function activate(context) {
     context.subscriptions.push(
         LanguageMapEditorProvider.register(context),
+        XliffEditorProvider.register(context),
         vscode.commands.registerCommand('bcXliffLanguageMap.buildMaps', () => buildMaps()),
         vscode.commands.registerCommand('bcXliffLanguageMap.fillMissing', () => fillMissingTranslations()),
         vscode.commands.registerCommand('bcXliffLanguageMap.fillMissingCurrent', uri => fillMissingTranslations(uri)),
         vscode.commands.registerCommand('bcXliffLanguageMap.selectAiModel', () => chooseAiModelCommand()),
-        vscode.commands.registerCommand('bcXliffLanguageMap.mergeTranslations', () => mergeTranslations())
+        vscode.commands.registerCommand('bcXliffLanguageMap.mergeTranslations', () => mergeTranslations()),
+        vscode.commands.registerCommand('bcXliffLanguageMap.openXliffEditor', uri => openXliffEditor(uri))
     );
 }
 
+
+async function openXliffEditor(uri) {
+    let target = uri;
+    if (!target || !target.fsPath) {
+        const active = vscode.window.activeTextEditor && vscode.window.activeTextEditor.document;
+        if (active && active.uri && active.uri.fsPath.toLowerCase().endsWith('.xlf')) target = active.uri;
+    }
+    if (!target || !target.fsPath || !target.fsPath.toLowerCase().endsWith('.xlf')) {
+        vscode.window.showInformationMessage('BC XLIFF Language Map: select an XLIFF file first.');
+        return;
+    }
+    await vscode.commands.executeCommand('vscode.openWith', target, XliffEditorProvider.viewType);
+}
 
 async function findTranslationFiles(singleUri) {
     if (singleUri && singleUri.fsPath && singleUri.fsPath.toLowerCase().endsWith('.xlf')) {
