@@ -1,7 +1,5 @@
 # AL Xliff Studio
 
-![AL Xliff Studio](./al-xliff-studio.png)
-
 ### Visual XLIFF editing workflow
 
 The visual editor uses an explicit staging workflow: **⇄ Sync → ? Try Translation / AI → review drafts → ✓ Apply Drafts → translated**. Try/AI actions and manual Translation edits do not modify the XLIFF immediately. All staged changes stay visible until **✓ Apply Drafts** writes them together as `translated`; leaving a field never saves or changes status.

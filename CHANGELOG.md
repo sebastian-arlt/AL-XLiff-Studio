@@ -1,3 +1,8 @@
+## 1.2.2
+
+- Removed the relative README image that VS Code cannot reliably resolve for locally installed VSIX packages.
+- The packaged extension icon remains configured through `package.json` (`icon: al-xliff-studio.png`).
+
 ## 1.2.1
 
 - Fixed extension icon rendering in VS Code extension details by placing the package icon at the extension root and using Markdown image syntax in the README.
