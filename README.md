@@ -1,6 +1,6 @@
 # AL Xliff Studio
 
-<img src="images/al-xliff-studio.png" alt="AL Xliff Studio icon" width="128" height="128">
+![AL Xliff Studio](./al-xliff-studio.png)
 
 ### Visual XLIFF editing workflow
 
@@ -14,7 +14,7 @@ The quick category filters **Missing**, **Review**, **Proposals**, **Drafts**, a
 
 ## Installation
 
-Install `al-xliff-studio-1.2.0.vsix` with **Extensions: Install from VSIX...** in the VS Code Command Palette. No npm dependencies are required at runtime.
+Install `al-xliff-studio-1.2.1.vsix` with **Extensions: Install from VSIX...** in the VS Code Command Palette. No npm dependencies are required at runtime.
 
 VS Code extension for Microsoft Dynamics 365 Business Central AL projects. It keeps a translation-memory file next to each non-generated XLIFF translation file and can restore translations after XLIFF ids change.
 

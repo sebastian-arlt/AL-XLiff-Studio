@@ -1,3 +1,7 @@
+## 1.2.1
+
+- Fixed extension icon rendering in VS Code extension details by placing the package icon at the extension root and using Markdown image syntax in the README.
+
 # Changelog
 
 ## 1.2.0
