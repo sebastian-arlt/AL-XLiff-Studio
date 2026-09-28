@@ -24,9 +24,9 @@ function loadAiWithVscodeStub(batchSize = 2) {
             getConfiguration(section) {
                 return {
                     get(key, fallback) {
-                        if (section === 'bcXliffLanguageMap' && key === 'ai.enabled') return true;
-                        if (section === 'bcXliffLanguageMap' && key === 'ai.batchSize') return batchSize;
-                        if (section === 'bcXliffLanguageMap.ai') return '';
+                        if (section === 'alXliffStudio' && key === 'ai.enabled') return true;
+                        if (section === 'alXliffStudio' && key === 'ai.batchSize') return batchSize;
+                        if (section === 'alXliffStudio.ai') return '';
                         return fallback;
                     }
                 };

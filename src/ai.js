@@ -1,10 +1,11 @@
 'use strict';
 
 const vscode = require('vscode');
+const { BRAND_NAME, CONFIG_SECTION, CONFIG_AI_SECTION } = require('./identity');
 const { placeholdersMatch } = require('./xliff');
 
 async function selectModelFromConfiguration() {
-    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap.ai');
+    const config = vscode.workspace.getConfiguration(CONFIG_AI_SECTION);
     const modelId = (config.get('modelId') || '').trim();
     const vendor = (config.get('vendor') || '').trim();
     const family = (config.get('family') || '').trim();
@@ -39,18 +40,18 @@ async function chooseAiModelCommand() {
     const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Select the AI model for XLIFF translations' });
     if (!pick) return;
 
-    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap.ai');
+    const config = vscode.workspace.getConfiguration(CONFIG_AI_SECTION);
     await config.update('modelId', pick.model.id, vscode.ConfigurationTarget.Workspace);
     if (pick.model.vendor) {
         await config.update('vendor', pick.model.vendor, vscode.ConfigurationTarget.Workspace);
     }
-    vscode.window.showInformationMessage(`BC XLIFF Language Map: translation model set to ${pick.model.name || pick.model.id}.`);
+    vscode.window.showInformationMessage(`${BRAND_NAME}: translation model set to ${pick.model.name || pick.model.id}.`);
 }
 
 async function translateItems(items, sourceLanguage, targetLanguage, token, onProgress) {
     if (!items.length) return new Map();
 
-    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
     if (config.get('ai.enabled', true) === false) {
         return new Map();
     }

@@ -18,17 +18,18 @@ const { resolveKnownTranslationForUnit } = require('./src/resolver');
 const { findDuplicateIds, findDuplicateGeneratorNotes, findMaxWidthViolations } = require('./src/validate');
 const { mergeTranslationUnits, validateMergeLanguages } = require('./src/merge');
 const { getGeneratorCompanionFilename } = require('./src/paths');
+const { BRAND_NAME, COMMAND_PREFIX, CONFIG_SECTION } = require('./src/identity');
 
 function activate(context) {
     context.subscriptions.push(
         LanguageMapEditorProvider.register(context),
         XliffEditorProvider.register(context),
-        vscode.commands.registerCommand('bcXliffLanguageMap.buildMaps', () => buildMaps()),
-        vscode.commands.registerCommand('bcXliffLanguageMap.fillMissing', () => fillMissingTranslations()),
-        vscode.commands.registerCommand('bcXliffLanguageMap.fillMissingCurrent', uri => fillMissingTranslations(uri)),
-        vscode.commands.registerCommand('bcXliffLanguageMap.selectAiModel', () => chooseAiModelCommand()),
-        vscode.commands.registerCommand('bcXliffLanguageMap.mergeTranslations', () => mergeTranslations()),
-        vscode.commands.registerCommand('bcXliffLanguageMap.openXliffEditor', uri => openXliffEditor(uri))
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.buildMaps`, () => buildMaps()),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.fillMissing`, () => fillMissingTranslations()),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.fillMissingCurrent`, uri => fillMissingTranslations(uri)),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.selectAiModel`, () => chooseAiModelCommand()),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.mergeTranslations`, () => mergeTranslations()),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openXliffEditor`, uri => openXliffEditor(uri))
     );
 }
 
@@ -40,7 +41,7 @@ async function openXliffEditor(uri) {
         if (active && active.uri && active.uri.fsPath.toLowerCase().endsWith('.xlf')) target = active.uri;
     }
     if (!target || !target.fsPath || !target.fsPath.toLowerCase().endsWith('.xlf')) {
-        vscode.window.showInformationMessage('BC XLIFF Language Map: select an XLIFF file first.');
+        vscode.window.showInformationMessage(`${BRAND_NAME}: select an XLIFF file first.`);
         return;
     }
     await vscode.commands.executeCommand('vscode.openWith', target, XliffEditorProvider.viewType);
@@ -51,7 +52,7 @@ async function findTranslationFiles(singleUri) {
         if (singleUri.fsPath.toLowerCase().endsWith('.g.xlf')) return [];
         return [singleUri];
     }
-    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
     const include = config.get('xliffGlob', '**/Translations/*.xlf');
     const exclude = config.get('excludeGlob', '**/*.g.xlf');
     return vscode.workspace.findFiles(include, exclude);
@@ -60,11 +61,11 @@ async function findTranslationFiles(singleUri) {
 async function buildMaps(singleUri) {
     const files = await findTranslationFiles(singleUri);
     if (!files.length) {
-        vscode.window.showInformationMessage('BC XLIFF Language Map: no translation XLIFF files found.');
+        vscode.window.showInformationMessage('AL Xliff Studio: no translation XLIFF files found.');
         return;
     }
 
-    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
     const checkDuplicateIds = config.get('validation.checkDuplicateIds', true);
     const checkDuplicateGeneratorNotes = config.get('validation.checkDuplicateGeneratorNotes', true);
 
@@ -76,7 +77,7 @@ async function buildMaps(singleUri) {
 
     await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: 'BC XLIFF Language Map: building language maps',
+        title: 'AL Xliff Studio: building language maps',
         cancellable: true
     }, async (progress, token) => {
         for (let i = 0; i < files.length; i++) {
@@ -106,7 +107,7 @@ async function buildMaps(singleUri) {
     });
 
     const suffix = conflictCount ? ` ${conflictCount} conflicting duplicate source value(s) were detected.` : '';
-    vscode.window.showInformationMessage(`BC XLIFF Language Map: ${createdOrUpdated} map file(s) updated from ${pairCount} translated source pair(s).${suffix}`);
+    vscode.window.showInformationMessage(`AL Xliff Studio: ${createdOrUpdated} map file(s) updated from ${pairCount} translated source pair(s).${suffix}`);
     reportSkippedAndFailed(skippedFiles, failedFiles);
 }
 
@@ -114,11 +115,11 @@ async function buildMaps(singleUri) {
 async function fillMissingTranslations(singleUri) {
     const files = await findTranslationFiles(singleUri);
     if (!files.length) {
-        vscode.window.showInformationMessage('BC XLIFF Language Map: no translation XLIFF files found.');
+        vscode.window.showInformationMessage('AL Xliff Studio: no translation XLIFF files found.');
         return;
     }
 
-    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
     const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
     const setTranslatedState = config.get('setTranslatedState', true);
     const checkDuplicateIds = config.get('validation.checkDuplicateIds', true);
@@ -151,7 +152,7 @@ async function fillMissingTranslations(singleUri) {
     // are allowed to contribute to the AI prompt/count.
     const deterministicCancelled = await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: 'BC XLIFF Language Map: applying comments and language maps',
+        title: 'AL Xliff Studio: applying comments and language maps',
         cancellable: true
     }, async (progress, token) => {
         for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
@@ -333,7 +334,7 @@ async function fillMissingTranslations(singleUri) {
     if (useAi) {
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: 'BC XLIFF Language Map: translating with AI',
+            title: 'AL Xliff Studio: translating with AI',
             cancellable: true
         }, async (progress, token) => {
             let aiCompleted = 0;
@@ -397,7 +398,7 @@ async function fillMissingTranslations(singleUri) {
                     }
                 } catch (err) {
                     const choice = await vscode.window.showWarningMessage(
-                        `BC XLIFF Language Map: AI fallback failed for ${path.basename(work.uri.fsPath)}: ${formatError(err)}`,
+                        `AL Xliff Studio: AI fallback failed for ${path.basename(work.uri.fsPath)}: ${formatError(err)}`,
                         'Continue without AI',
                         'Cancel'
                     );
@@ -441,7 +442,7 @@ async function fillMissingTranslations(singleUri) {
         : '';
 
     vscode.window.showInformationMessage(
-        `BC XLIFF Language Map: ${changedFileKeys.size} XLIFF file(s) changed; ${commentHits} Developer-comment translation(s), ${mapHits} translation-memory hit(s)${fuzzyText}, ${aiHits} AI translation(s), ${stillMissing} trans-unit(s) still missing.${aiStatus}${commentConflictText}${mapConflictText}${maxWidthText}${sourceChangedText}`
+        `AL Xliff Studio: ${changedFileKeys.size} XLIFF file(s) changed; ${commentHits} Developer-comment translation(s), ${mapHits} translation-memory hit(s)${fuzzyText}, ${aiHits} AI translation(s), ${stillMissing} trans-unit(s) still missing.${aiStatus}${commentConflictText}${mapConflictText}${maxWidthText}${sourceChangedText}`
     );
     reportSkippedAndFailed(skippedFiles, failedFiles);
 }
@@ -497,13 +498,13 @@ function reportSkippedAndFailed(skippedFiles, failedFiles) {
             return `${path.basename(entry.uri.fsPath)} (${reasons.join('; ')})`;
         });
         vscode.window.showWarningMessage(
-            `BC XLIFF Language Map: ${skippedFiles.length} file(s) skipped due to structural issues: ${details.join(', ')}`
+            `AL Xliff Studio: ${skippedFiles.length} file(s) skipped due to structural issues: ${details.join(', ')}`
         );
     }
     if (failedFiles.length) {
         const details = failedFiles.map(entry => `${path.basename(entry.uri.fsPath)}: ${entry.message}`);
         vscode.window.showWarningMessage(
-            `BC XLIFF Language Map: ${failedFiles.length} file(s) could not be read or written: ${details.join(', ')}`
+            `AL Xliff Studio: ${failedFiles.length} file(s) could not be read or written: ${details.join(', ')}`
         );
     }
 }
@@ -511,7 +512,7 @@ function reportSkippedAndFailed(skippedFiles, failedFiles) {
 async function mergeTranslations() {
     const files = await findTranslationFiles();
     if (files.length < 2) {
-        vscode.window.showInformationMessage('BC XLIFF Language Map: need at least two translation XLIFF files to merge.');
+        vscode.window.showInformationMessage('AL Xliff Studio: need at least two translation XLIFF files to merge.');
         return;
     }
 
@@ -535,7 +536,7 @@ async function mergeTranslations() {
         const targetParsed = parseXliff(targetText);
         const languageCheck = validateMergeLanguages(targetParsed, sourceParsed);
         if (!languageCheck.compatible) {
-            vscode.window.showWarningMessage(`BC XLIFF Language Map: merge blocked. ${languageCheck.reason}`);
+            vscode.window.showWarningMessage(`AL Xliff Studio: merge blocked. ${languageCheck.reason}`);
             return;
         }
 
@@ -548,16 +549,16 @@ async function mergeTranslations() {
 
         const result = mergeTranslationUnits(targetText, targetParsed, sourceParsed, modePick.mode);
         if (result.updatedCount === 0 && result.addedCount === 0) {
-            vscode.window.showInformationMessage('BC XLIFF Language Map: nothing to merge.');
+            vscode.window.showInformationMessage('AL Xliff Studio: nothing to merge.');
             return;
         }
 
         await writeText(toPick.uri, result.text);
         vscode.window.showInformationMessage(
-            `BC XLIFF Language Map: merged into ${path.basename(toPick.uri.fsPath)}: ${result.updatedCount} trans-unit(s) updated, ${result.addedCount} trans-unit(s) added.`
+            `AL Xliff Studio: merged into ${path.basename(toPick.uri.fsPath)}: ${result.updatedCount} trans-unit(s) updated, ${result.addedCount} trans-unit(s) added.`
         );
     } catch (err) {
-        vscode.window.showErrorMessage(`BC XLIFF Language Map: merge failed: ${formatWriteError(err)}`);
+        vscode.window.showErrorMessage(`AL Xliff Studio: merge failed: ${formatWriteError(err)}`);
     }
 }
 

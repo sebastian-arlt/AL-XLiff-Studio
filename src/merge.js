@@ -2,10 +2,11 @@
 
 const { getAttribute, setAttribute, encodeXmlText, isMissingTranslation } = require('./xliff');
 const { findDuplicateIds, findDuplicateGeneratorNotes } = require('./validate');
+const { NOTE_FROM } = require('./identity');
 
 const MERGE_NOTE = 'Copied from another xliff file. Please review the translation.';
 const MERGE_STATE = 'needs-adaptation';
-const MERGE_NOTE_FROM = 'BC.XliffMap';
+const MERGE_NOTE_FROM = NOTE_FROM;
 
 function normalizeLanguage(value) {
     return String(value || '').trim().replace(/_/g, '-').toLowerCase();

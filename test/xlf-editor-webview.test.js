@@ -74,9 +74,9 @@ test('XLIFF project search uses exact plain text and generator XLIFF is read-onl
 
 test('package contributes the visual XLIFF editor as default for xlf files', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-    const editor = pkg.contributes.customEditors.find(item => item.viewType === 'bcXliffLanguageMap.xlfEditor');
+    const editor = pkg.contributes.customEditors.find(item => item.viewType === 'alXliffStudio.xlfEditor');
     assert.ok(editor);
-    assert.equal(editor.displayName, 'BC XLIFF Editor');
+    assert.equal(editor.displayName, 'AL Xliff Studio — XLIFF Editor');
     assert.equal(editor.priority, 'default');
     assert.equal(editor.selector[0].filenamePattern, '*.xlf');
 });

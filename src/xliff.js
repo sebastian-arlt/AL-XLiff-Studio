@@ -1,5 +1,7 @@
 'use strict';
 
+const { NOTE_FROM, isStudioNoteFrom } = require('./identity');
+
 const { languageKeyMatches } = require('./languageCodes');
 
 function decodeXmlEntities(value) {
@@ -327,7 +329,7 @@ function setTarget(unitRaw, translation, eol, setTranslatedState) {
     return unitRaw.replace(sourceRe, `$1${eol}${indent}${target}`);
 }
 
-const SYNC_NOTE_FROM = 'BC.XliffMap';
+const SYNC_NOTE_FROM = NOTE_FROM;
 const SOURCE_CHANGE_NOTE_PREFIX = 'Source changed from ';
 
 // Compares a translation XLIFF against its generator (.g.xlf) by trans-unit id.
@@ -353,8 +355,7 @@ function detectSourceChanges(targetParsed, sourceParsed) {
 
 // Synchronizes changed <source> content from the generator XLIFF. If a target
 // already exists it is retained and marked needs-l10n for human review. The
-// source-change note is specific, so unrelated BC.XliffMap notes (fuzzy/merge)
-// never suppress source synchronization.
+// The source-change note is specific. Unrelated AL.XliffStudio notes never suppress source synchronization.
 function flagSourceChangedUnits(text, changedIds) {
     if (!changedIds || changedIds.size === 0) {
         return { text, synchronizedCount: 0, flaggedCount: 0 };
@@ -486,7 +487,7 @@ function hasSpecificSyncNote(unitRaw, notePrefix) {
     const noteRe = /<note\b([^>]*)>([\s\S]*?)<\/note>/gi;
     let match;
     while ((match = noteRe.exec(unitRaw)) !== null) {
-        if (String(getAttribute(match[1], 'from') || '').trim().toLowerCase() !== SYNC_NOTE_FROM.toLowerCase()) continue;
+        if (!isStudioNoteFrom(getAttribute(match[1], 'from'))) continue;
         const text = decodeXmlEntities(stripXmlTags(match[2])).trim();
         if (text.startsWith(notePrefix)) return true;
     }

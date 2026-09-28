@@ -1,6 +1,7 @@
 'use strict';
 
 const vscode = require('vscode');
+const { BRAND_NAME, CONFIG_SECTION, XLIFF_EDITOR_VIEW_TYPE } = require('./identity');
 const path = require('path');
 const { parseLng, serializeLng, mergeEntries, entriesToMap } = require('./lng');
 const {
@@ -22,7 +23,7 @@ const { synchronizeTranslationUnits } = require('./synchronize');
 const ROW_PREPARE_CHUNK_SIZE = 200;
 
 class XliffEditorProvider {
-    static viewType = 'bcXliffLanguageMap.xlfEditor';
+    static viewType = XLIFF_EDITOR_VIEW_TYPE;
 
     constructor(context) {
         this.context = context;
@@ -80,7 +81,7 @@ class XliffEditorProvider {
 
             const parsed = parseXliff(sourceText);
             const readOnly = isGeneratorXliff(document.uri, parsed);
-            const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+            const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
             const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
             const rows = [];
             let missingCount = 0;
@@ -268,7 +269,7 @@ class XliffEditorProvider {
                 const parsed = parseXliff(document.getText());
                 const readOnly = isGeneratorXliff(document.uri, parsed);
                 if (readOnly) {
-                    postError('Generated/source XLIFF files are read-only in the BC XLIFF Editor.');
+                    postError('Generated/source XLIFF files are read-only in the AL Xliff Studio XLIFF Editor.');
                     return;
                 }
 
@@ -303,7 +304,7 @@ class XliffEditorProvider {
                             : '';
                         const mapSuffix = ` Companion .lng updated from ${mapResult.pairCount} confirmed translation pair(s).`;
                         vscode.window.showInformationMessage(
-                            `BC XLIFF Language Map: synchronized ${result.synchronizedSources} changed source(s), added ${result.addedUnits} missing unit(s), flagged ${result.flaggedTargets} existing target(s) for review.${obsoleteSuffix}${mapSuffix}`
+                            `AL Xliff Studio: synchronized ${result.synchronizedSources} changed source(s), added ${result.addedUnits} missing unit(s), flagged ${result.flaggedTargets} existing target(s) for review.${obsoleteSuffix}${mapSuffix}`
                         );
                     } finally {
                         webviewPanel.webview.postMessage({ type: 'syncBusy', busy: false });
@@ -312,11 +313,11 @@ class XliffEditorProvider {
                 }
 
                 if (message.type === 'tryFile') {
-                    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+                    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
                     const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
                     const missingUnits = parsed.units.filter(unit => isMissingTranslation(unit, treatNeedsTranslationAsMissing));
                     if (!missingUnits.length) {
-                        vscode.window.showInformationMessage('BC XLIFF Language Map: no missing translations in this XLIFF.');
+                        vscode.window.showInformationMessage('AL Xliff Studio: no missing translations in this XLIFF.');
                         return;
                     }
 
@@ -380,7 +381,7 @@ class XliffEditorProvider {
                             if (choice === 'Use AI') {
                                 await vscode.window.withProgress({
                                     location: vscode.ProgressLocation.Notification,
-                                    title: 'BC XLIFF Language Map: creating AI drafts',
+                                    title: 'AL Xliff Studio: creating AI drafts',
                                     cancellable: true
                                 }, async (progress, token) => {
                                     progress.report({ message: `0 / ${unresolved.length}` });
@@ -423,7 +424,7 @@ class XliffEditorProvider {
                         }
                         const unresolvedAfter = unresolved.length - aiProposals;
                         vscode.window.showInformationMessage(
-                            `BC XLIFF Language Map: ${stagedTranslations.length} direct translation draft(s), ${fuzzyProposals} fuzzy proposal draft(s), ${aiProposals} AI proposal draft(s)${unresolvedAfter > 0 ? `, ${unresolvedAfter} still open` : ''}. Use Apply Drafts to write staged changes as translated.`
+                            `AL Xliff Studio: ${stagedTranslations.length} direct translation draft(s), ${fuzzyProposals} fuzzy proposal draft(s), ${aiProposals} AI proposal draft(s)${unresolvedAfter > 0 ? `, ${unresolvedAfter} still open` : ''}. Use Apply Drafts to write staged changes as translated.`
                         );
                     } finally {
                         webviewPanel.webview.postMessage({ type: 'tryBusy', all: true, busy: false });
@@ -515,7 +516,7 @@ class XliffEditorProvider {
                 }
 
                 if (message.type === 'tryUnit') {
-                    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+                    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
                     const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
                     if (!isMissingTranslation(unit, treatNeedsTranslationAsMissing)) {
                         postError('This row is not missing a translation.');
@@ -580,7 +581,7 @@ class XliffEditorProvider {
                         let suggestion;
                         await vscode.window.withProgress({
                             location: vscode.ProgressLocation.Notification,
-                            title: 'BC XLIFF Language Map: creating AI draft',
+                            title: 'AL Xliff Studio: creating AI draft',
                             cancellable: true
                         }, async (progress, token) => {
                             progress.report({ message: '0 / 1' });
@@ -653,9 +654,9 @@ class XliffEditorProvider {
                 }
 
                 if (message.type === 'aiTranslate') {
-                    const config = vscode.workspace.getConfiguration('bcXliffLanguageMap');
+                    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
                     if (config.get('ai.enabled', true) === false) {
-                        postError('AI translation is disabled in BC XLIFF Language Map settings.');
+                        postError('AI translation is disabled in AL Xliff Studio settings.');
                         return;
                     }
                     webviewPanel.webview.postMessage({ type: 'aiBusy', ordinal, busy: true });
@@ -709,7 +710,7 @@ class XliffEditorProvider {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<title>BC XLIFF Editor</title>
+<title>AL Xliff Studio — XLIFF Editor</title>
 <style>
 :root { --row-border: var(--vscode-panel-border); --chrome-height: 118px; }
 * { box-sizing:border-box; }
@@ -795,7 +796,7 @@ tr.row-draft td:first-child { box-shadow:inset 3px 0 0 var(--vscode-descriptionF
 <div class="chrome" id="chrome">
   <div class="mainbar">
     <div class="identity">
-      <div class="title">BC XLIFF Editor</div>
+      <div class="title">AL Xliff Studio — XLIFF Editor</div>
       <div class="meta" id="meta">Loading…</div>
       <div class="workflow-hint">⇄ Sync → ? Try Translation / AI → review staged drafts → ✓ Apply Drafts → translated</div>
     </div>

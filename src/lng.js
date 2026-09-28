@@ -1,6 +1,6 @@
 'use strict';
 
-const HEADER = '# BC XLIFF Language Map v1';
+const HEADER = '# AL Xliff Studio Language Map v1';
 
 function parseLng(text) {
     const entries = [];

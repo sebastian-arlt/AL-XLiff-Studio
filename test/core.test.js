@@ -285,6 +285,6 @@ test('visual XLIFF editor can attach a fuzzy review note while filling one unit'
     const parsed = parseXliff(result.text);
     assert.equal(parsed.units[0].target, 'Debitornummer');
     assert.equal(parsed.units[0].targetState, 'needs-review-translation');
-    assert.match(result.text, /from="BC\.XliffMap"/);
+    assert.match(result.text, /from="AL\.XliffStudio"/);
     assert.match(result.text, /Fuzzy match \(91%\)/);
 });

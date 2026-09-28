@@ -1,10 +1,11 @@
 'use strict';
 
 const vscode = require('vscode');
+const { LNG_EDITOR_VIEW_TYPE } = require('./identity');
 const { parseLng, serializeLng } = require('./lng');
 
 class LanguageMapEditorProvider {
-    static viewType = 'bcXliffLanguageMap.lngEditor';
+    static viewType = LNG_EDITOR_VIEW_TYPE;
 
     constructor(context) {
         this.context = context;

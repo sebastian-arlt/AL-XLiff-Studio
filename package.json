@@ -1,14 +1,10 @@
 {
-  "name": "bc-xliff-language-map",
-  "displayName": "BC XLIFF Language Map",
-  "description": "Visual XLIFF/.lng editing, translation memory, XLIFF repair and VS Code AI translation support for Microsoft Dynamics 365 Business Central AL apps.",
-  "version": "1.1.10",
+  "name": "al-xliff-studio",
+  "displayName": "AL Xliff Studio",
+  "description": "Visual XLIFF editing, synchronization, translation memory, review workflows, and VS Code AI translation support for Microsoft Dynamics 365 Business Central AL apps.",
+  "version": "1.2.0",
   "publisher": "sebastian-tools",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/sebastian-arlt/BC.Xliff.Map"
-  },
   "engines": {
     "vscode": "^1.97.0"
   },
@@ -23,67 +19,70 @@
     "XLIFF",
     "translation",
     "localization",
-    "Copilot"
+    "Copilot",
+    "XLIFF editor",
+    "translation memory",
+    "localization workflow"
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onCommand:bcXliffLanguageMap.buildMaps",
-    "onCommand:bcXliffLanguageMap.fillMissing",
-    "onCommand:bcXliffLanguageMap.fillMissingCurrent",
-    "onCommand:bcXliffLanguageMap.selectAiModel",
-    "onCommand:bcXliffLanguageMap.mergeTranslations",
-    "onCustomEditor:bcXliffLanguageMap.lngEditor",
-    "onCustomEditor:bcXliffLanguageMap.xlfEditor",
-    "onCommand:bcXliffLanguageMap.openXliffEditor"
+    "onCommand:alXliffStudio.buildMaps",
+    "onCommand:alXliffStudio.fillMissing",
+    "onCommand:alXliffStudio.fillMissingCurrent",
+    "onCommand:alXliffStudio.selectAiModel",
+    "onCommand:alXliffStudio.mergeTranslations",
+    "onCustomEditor:alXliffStudio.lngEditor",
+    "onCustomEditor:alXliffStudio.xlfEditor",
+    "onCommand:alXliffStudio.openXliffEditor"
   ],
   "contributes": {
     "commands": [
       {
-        "command": "bcXliffLanguageMap.buildMaps",
-        "title": "BC XLIFF: Build/Update Language Maps"
+        "command": "alXliffStudio.buildMaps",
+        "title": "AL Xliff Studio: Build/Update Language Maps"
       },
       {
-        "command": "bcXliffLanguageMap.fillMissing",
-        "title": "BC XLIFF: Fill Missing Translations"
+        "command": "alXliffStudio.fillMissing",
+        "title": "AL Xliff Studio: Fill Missing Translations"
       },
       {
-        "command": "bcXliffLanguageMap.fillMissingCurrent",
-        "title": "BC XLIFF: Fill Missing Translations in Current File"
+        "command": "alXliffStudio.fillMissingCurrent",
+        "title": "AL Xliff Studio: Fill Missing Translations in Current File"
       },
       {
-        "command": "bcXliffLanguageMap.selectAiModel",
-        "title": "BC XLIFF: Select Translation AI Model"
+        "command": "alXliffStudio.selectAiModel",
+        "title": "AL Xliff Studio: Select Translation AI Model"
       },
       {
-        "command": "bcXliffLanguageMap.mergeTranslations",
-        "title": "BC XLIFF: Merge Translations Between Files"
+        "command": "alXliffStudio.mergeTranslations",
+        "title": "AL Xliff Studio: Merge Translations Between Files"
       },
       {
-        "command": "bcXliffLanguageMap.openXliffEditor",
-        "title": "BC XLIFF: Open Visual XLIFF Editor"
+        "command": "alXliffStudio.openXliffEditor",
+        "title": "AL Xliff Studio: Open Visual XLIFF Editor"
       }
     ],
     "menus": {
       "explorer/context": [
         {
-          "command": "bcXliffLanguageMap.fillMissingCurrent",
+          "command": "alXliffStudio.fillMissingCurrent",
           "when": "resourceExtname == .xlf",
           "group": "navigation@50"
         },
         {
-          "command": "bcXliffLanguageMap.openXliffEditor",
+          "command": "alXliffStudio.openXliffEditor",
           "when": "resourceExtname == .xlf",
           "group": "navigation@49"
         }
       ],
       "editor/title/context": [
         {
-          "command": "bcXliffLanguageMap.fillMissingCurrent",
+          "command": "alXliffStudio.fillMissingCurrent",
           "when": "resourceExtname == .xlf",
           "group": "navigation@50"
         },
         {
-          "command": "bcXliffLanguageMap.openXliffEditor",
+          "command": "alXliffStudio.openXliffEditor",
           "when": "resourceExtname == .xlf",
           "group": "navigation@49"
         }
@@ -91,8 +90,8 @@
     },
     "customEditors": [
       {
-        "viewType": "bcXliffLanguageMap.lngEditor",
-        "displayName": "BC Language Map Editor",
+        "viewType": "alXliffStudio.lngEditor",
+        "displayName": "AL Xliff Studio \u2014 Language Map",
         "selector": [
           {
             "filenamePattern": "*.*-*.lng"
@@ -101,8 +100,8 @@
         "priority": "default"
       },
       {
-        "viewType": "bcXliffLanguageMap.xlfEditor",
-        "displayName": "BC XLIFF Editor",
+        "viewType": "alXliffStudio.xlfEditor",
+        "displayName": "AL Xliff Studio \u2014 XLIFF Editor",
         "selector": [
           {
             "filenamePattern": "*.xlf"
@@ -112,83 +111,83 @@
       }
     ],
     "configuration": {
-      "title": "BC XLIFF Language Map",
+      "title": "AL Xliff Studio",
       "properties": {
-        "bcXliffLanguageMap.xliffGlob": {
+        "alXliffStudio.xliffGlob": {
           "type": "string",
           "default": "**/Translations/*.xlf",
           "description": "Glob used to find translation XLIFF files."
         },
-        "bcXliffLanguageMap.excludeGlob": {
+        "alXliffStudio.excludeGlob": {
           "type": "string",
           "default": "**/*.g.xlf",
           "description": "Glob excluded from XLIFF processing. The generated .g.xlf should normally stay excluded."
         },
-        "bcXliffLanguageMap.treatNeedsTranslationAsMissing": {
+        "alXliffStudio.treatNeedsTranslationAsMissing": {
           "type": "boolean",
           "default": true,
           "description": "Treat empty/new/needs-translation XLIFF targets as missing. Review/adaptation/l10n states with target text are preserved for human review and are not sent to AI."
         },
-        "bcXliffLanguageMap.setTranslatedState": {
+        "alXliffStudio.setTranslatedState": {
           "type": "boolean",
           "default": true,
           "description": "Set filled target elements to state=translated."
         },
-        "bcXliffLanguageMap.ai.enabled": {
+        "alXliffStudio.ai.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Use a VS Code language model only after no Developer-comment translation and no companion .lng match was found."
         },
-        "bcXliffLanguageMap.ai.vendor": {
+        "alXliffStudio.ai.vendor": {
           "type": "string",
           "default": "copilot",
           "description": "Preferred VS Code language-model vendor. Leave empty to allow any vendor."
         },
-        "bcXliffLanguageMap.ai.family": {
+        "alXliffStudio.ai.family": {
           "type": "string",
           "default": "",
           "description": "Optional preferred model family."
         },
-        "bcXliffLanguageMap.ai.modelId": {
+        "alXliffStudio.ai.modelId": {
           "type": "string",
           "default": "",
           "description": "Optional exact model id. Use the Select Translation AI Model command to set it."
         },
-        "bcXliffLanguageMap.ai.batchSize": {
+        "alXliffStudio.ai.batchSize": {
           "type": "integer",
           "minimum": 1,
           "maximum": 50,
           "default": 20,
           "description": "Number of source strings per AI translation request."
         },
-        "bcXliffLanguageMap.validation.checkDuplicateIds": {
+        "alXliffStudio.validation.checkDuplicateIds": {
           "type": "boolean",
           "default": true,
           "description": "Warn and skip a file when it contains duplicate trans-unit ids."
         },
-        "bcXliffLanguageMap.validation.checkDuplicateGeneratorNotes": {
+        "alXliffStudio.validation.checkDuplicateGeneratorNotes": {
           "type": "boolean",
           "default": true,
           "description": "Warn and skip a file when it contains duplicate Xliff Generator notes."
         },
-        "bcXliffLanguageMap.validation.checkMaxWidth": {
+        "alXliffStudio.validation.checkMaxWidth": {
           "type": "boolean",
           "default": true,
           "description": "Warn when a filled target text is longer than the trans-unit's maxwidth attribute."
         },
-        "bcXliffLanguageMap.fuzzyMatch.enabled": {
+        "alXliffStudio.fuzzyMatch.enabled": {
           "type": "boolean",
           "default": false,
           "description": "Fall back to the closest similarity match in the companion .lng file when no exact match exists. Applied translations are flagged state=needs-review-translation for human review."
         },
-        "bcXliffLanguageMap.fuzzyMatch.minimumQuality": {
+        "alXliffStudio.fuzzyMatch.minimumQuality": {
           "type": "integer",
           "minimum": 0,
           "maximum": 100,
           "default": 80,
           "description": "Minimum similarity percentage (Levenshtein-based) required to accept a fuzzy translation-memory match."
         },
-        "bcXliffLanguageMap.sourceChangeDetection.enabled": {
+        "alXliffStudio.sourceChangeDetection.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Compare already-translated trans-units against the sibling *.g.xlf file by id and flag state=needs-l10n when the source text changed."
@@ -198,9 +197,10 @@
   },
   "scripts": {
     "test": "node --test",
-    "package": "vsce package --out bc-xliff-language-map.vsix"
+    "package": "vsce package --out al-xliff-studio.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.2.1"
-  }
+  },
+  "icon": "images/al-xliff-studio.png"
 }

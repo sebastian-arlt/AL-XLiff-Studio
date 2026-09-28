@@ -1,4 +1,6 @@
-# BC XLIFF Language Map
+# AL Xliff Studio
+
+<img src="images/al-xliff-studio.png" alt="AL Xliff Studio icon" width="128" height="128">
 
 ### Visual XLIFF editing workflow
 
@@ -12,16 +14,16 @@ The quick category filters **Missing**, **Review**, **Proposals**, **Drafts**, a
 
 ## Installation
 
-Install `bc-xliff-language-map-1.1.10.vsix` with **Extensions: Install from VSIX...** in the VS Code Command Palette. No npm dependencies are required at runtime.
+Install `al-xliff-studio-1.2.0.vsix` with **Extensions: Install from VSIX...** in the VS Code Command Palette. No npm dependencies are required at runtime.
 
 VS Code extension for Microsoft Dynamics 365 Business Central AL projects. It keeps a translation-memory file next to each non-generated XLIFF translation file and can restore translations after XLIFF ids change.
 
 ## Main workflow
 
-1. Run **BC XLIFF: Build/Update Language Maps**.
+1. Run **AL Xliff Studio: Build/Update Language Maps**.
 2. For every translation `.xlf` except `.g.xlf`, the extension creates/updates a companion file such as `MyApp.de-DE.lng`.
 3. The `.lng` file contains one unique English source string and one translation per row.
-4. After AL refactoring/regeneration changes XLIFF ids, run **BC XLIFF: Fill Missing Translations**.
+4. After AL refactoring/regeneration changes XLIFF ids, run **AL Xliff Studio: Fill Missing Translations**.
 5. Missing targets are resolved in this fixed order:
    - explicit translation from the unit's Developer comment,
    - companion `.lng` translation memory (exact source match; optional fuzzy match is part of this translation-memory step and is flagged `needs-review-translation`),
@@ -29,14 +31,14 @@ VS Code extension for Microsoft Dynamics 365 Business Central AL projects. It ke
    Review states such as `needs-review-translation`, `needs-adaptation`, and `needs-l10n` are preserved for human review and are not sent to AI.
 6. If entries still need AI, the extension asks for permission on every translation run before sending any request. Successful AI translations are written both to the XLIFF and the companion `.lng` file.
 7. Before translation lookup, the extension synchronizes changed `<source>` text from the matching sibling `.g.xlf` file by trans-unit id. Existing usable targets are preserved as `state="needs-l10n"` with a source-change review note; empty/new/`needs-translation` targets remain eligible for the normal translation pipeline.
-8. Use **BC XLIFF: Merge Translations Between Files** to copy translations between two already-translated XLIFF files (e.g. from a similar app) without going through `.g.xlf`/comments/AI.
+8. Use **AL Xliff Studio: Merge Translations Between Files** to copy translations between two already-translated XLIFF files (e.g. from a similar app) without going through `.g.xlf`/comments/AI.
 
 ## `.lng` format
 
 The raw file is deliberately simple and Git-friendly:
 
 ```text
-# BC XLIFF Language Map v1
+# AL Xliff Studio Language Map v1
 # Language: de-DE
 "Encoding time"\t"Kodierungszeit"
 "Invalid barcode."\t"Ungültiger Barcode."
@@ -46,7 +48,7 @@ Both values are JSON strings separated by a TAB. This safely preserves quotes, t
 
 ## Visual editor
 
-Files named `*.<language>.lng` open with **BC Language Map Editor**. The editor provides:
+Files named `*.<language>.lng` open with **AL Xliff Studio — Language Map**. The editor provides:
 
 - two editable columns,
 - search/filter across source and translation,
@@ -62,7 +64,7 @@ Use **Reopen Editor With...** if you want to inspect the raw text instead.
 
 ## Visual XLIFF editor
 
-Files ending in `.xlf` open with **BC XLIFF Editor**. Translation XLIFF files are editable; generated `.g.xlf` files (and XLIFF files without a `target-language`) are deliberately read-only. Use **</>** or **Reopen Editor With...** to inspect the raw XML.
+Files ending in `.xlf` open with **AL Xliff Studio — XLIFF Editor**. Translation XLIFF files are editable; generated `.g.xlf` files (and XLIFF files without a `target-language`) are deliberately read-only. Use **</>** or **Reopen Editor With...** to inspect the raw XML.
 
 The editor is designed around an explicit review workflow:
 
@@ -121,12 +123,12 @@ Additional safeguards:
 
 ## Commands
 
-- `BC XLIFF: Build/Update Language Maps`
-- `BC XLIFF: Fill Missing Translations`
-- `BC XLIFF: Fill Missing Translations in Current File`
-- `BC XLIFF: Select Translation AI Model`
-- `BC XLIFF: Merge Translations Between Files`
-- `BC XLIFF: Open Visual XLIFF Editor`
+- `AL Xliff Studio: Build/Update Language Maps`
+- `AL Xliff Studio: Fill Missing Translations`
+- `AL Xliff Studio: Fill Missing Translations in Current File`
+- `AL Xliff Studio: Select Translation AI Model`
+- `AL Xliff Studio: Merge Translations Between Files`
+- `AL Xliff Studio: Open Visual XLIFF Editor`
 
 ## AI behavior
 
@@ -176,15 +178,15 @@ Translations are resolved per `trans-unit`. A Developer translation attached to 
 
 ## Validation and quality checks
 
-- **Duplicate id detection** (`bcXliffLanguageMap.validation.checkDuplicateIds`, default on): a file with duplicate `trans-unit` ids is skipped with a warning instead of being partially processed.
-- **Duplicate generator-note detection** (`bcXliffLanguageMap.validation.checkDuplicateGeneratorNotes`, default on): independently checks duplicate `Xliff Generator` notes so this validation can be enabled/disabled separately from duplicate ids.
-- **maxwidth check** (`bcXliffLanguageMap.validation.checkMaxWidth`, default on): reports how many filled target texts exceed the `maxwidth` attribute of their `trans-unit`.
-- **Fuzzy translation-memory match** (`bcXliffLanguageMap.fuzzyMatch.enabled`, default off; `bcXliffLanguageMap.fuzzyMatch.minimumQuality`, default 80): when no exact `.lng` match exists, the closest Levenshtein-similarity match above the configured quality is applied and marked `state="needs-review-translation"` with a note naming the matched source and quality percentage. Fuzzy matches are never written back into `.lng` and are not subsequently passed to AI.
-- **Source-change synchronization** (`bcXliffLanguageMap.sourceChangeDetection.enabled`, default on): the extension first looks for the exact generator companion by filename (`MyApp.de-DE.xlf` → `MyApp.g.xlf`). If no exact filename exists, a single unambiguous `*.g.xlf` in the folder may be used; with multiple candidates it refuses to guess. Changed source text is copied into the translation XLIFF before lookup. Existing translated/review targets become `needs-l10n`; untranslated targets continue through comment → `.lng` → AI. Other `BC.XliffMap` notes do not suppress source-change handling.
+- **Duplicate id detection** (`alXliffStudio.validation.checkDuplicateIds`, default on): a file with duplicate `trans-unit` ids is skipped with a warning instead of being partially processed.
+- **Duplicate generator-note detection** (`alXliffStudio.validation.checkDuplicateGeneratorNotes`, default on): independently checks duplicate `Xliff Generator` notes so this validation can be enabled/disabled separately from duplicate ids.
+- **maxwidth check** (`alXliffStudio.validation.checkMaxWidth`, default on): reports how many filled target texts exceed the `maxwidth` attribute of their `trans-unit`.
+- **Fuzzy translation-memory match** (`alXliffStudio.fuzzyMatch.enabled`, default off; `alXliffStudio.fuzzyMatch.minimumQuality`, default 80): when no exact `.lng` match exists, the closest Levenshtein-similarity match above the configured quality is applied and marked `state="needs-review-translation"` with a note naming the matched source and quality percentage. Fuzzy matches are never written back into `.lng` and are not subsequently passed to AI.
+- **Source-change synchronization** (`alXliffStudio.sourceChangeDetection.enabled`, default on): the extension first looks for the exact generator companion by filename (`MyApp.de-DE.xlf` → `MyApp.g.xlf`). If no exact filename exists, a single unambiguous `*.g.xlf` in the folder may be used; with multiple candidates it refuses to guess. Changed source text is copied into the translation XLIFF before lookup. Existing translated/review targets become `needs-l10n`; untranslated targets continue through comment → `.lng` → AI. Other `AL.XliffStudio` notes do not suppress source-change handling.
 
 ## Merging translations between files
 
-**BC XLIFF: Merge Translations Between Files** copies translations from one already-translated XLIFF file into another, matching trans-units by id, then by `Xliff Generator` note, then by a uniquely occurring source text. Three modes are available:
+**AL Xliff Studio: Merge Translations Between Files** copies translations from one already-translated XLIFF file into another, matching trans-units by id, then by `Xliff Generator` note, then by a uniquely occurring source text. Three modes are available:
 
 - **Untranslated** — fills targets that are empty, `new`, or `needs-translation`. Review/adaptation/l10n targets are preserved.
 - **Overwrite** — always replaces the target text of a matched trans-unit.

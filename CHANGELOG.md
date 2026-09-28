@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.0
+
+- Renames the product and all technical identifiers consistently to **AL Xliff Studio** for a clean new installation.
+- Changes the VS Code extension package id to `al-xliff-studio`, command/custom-editor prefix to `alXliffStudio`, settings section to `alXliffStudio.*`, and generated studio-note marker to `AL.XliffStudio`.
+- Renames Command Palette entries, configuration titles, custom editors, notifications, documentation, CI artifact names, and package output files accordingly.
+- Keeps the XLIFF/translation-memory functionality unchanged while removing obsolete BC-branded compatibility identifiers.
+- Uses the bundled neutral XLIFF icon from `images/al-xliff-studio.png` for the renamed extension.
+
+## 1.1.11
+
+- Introduces the **AL Xliff Studio** product branding used by the later fully renamed package.
+- Adds a dedicated `images/al-xliff-studio.png` extension icon and wires it into the VS Code extension manifest.
+- Updates Command Palette titles, configuration title, custom-editor names, README branding, and user-facing notifications to the new product name.
+
 ## 1.1.10
 
 - Adds pagination to the visual XLIFF editor with selectable page sizes of **50**, **100**, or **200** entries. Only the current page is rendered into the webview DOM, which substantially reduces rendering work for large XLIFF files.
@@ -71,11 +85,11 @@
 ## 1.1.3
 
 - Reworks the visual XLIFF editor into a clearer two-level workspace: primary file actions on top, search/quick filters below, and stronger row-state highlighting for missing, review, and placeholder-error rows.
-- Adds a prominent **Fill Missing** button to the XLIFF editor. It runs the same current-file translation pipeline as `BC XLIFF: Fill Missing Translations in Current File` and shows the current missing-count directly in the button.
+- Adds a prominent **Fill Missing** button to the XLIFF editor. It runs the same current-file translation pipeline as `AL Xliff Studio: Fill Missing Translations in Current File` and shows the current missing-count directly in the button.
 - Adds a per-row **Fill** action that processes only that trans-unit using the same priority: Developer comment → companion `.lng` → optional fuzzy match → AI only if still unresolved.
 - The row Fill action asks for AI permission only when that exact row reaches the AI fallback, and uses the standard bottom-right VS Code progress notification for the single AI translation.
 - Row Fill performs source synchronization against the matching `.g.xlf` for that unit before translation lookup when source-change detection is enabled.
-- Fuzzy row fills are written as `needs-review-translation` with a `BC.XliffMap` review note; confirmed comment/`.lng`/AI fills are written as `translated` and added to `.lng`.
+- Fuzzy row fills are written as `needs-review-translation` with a `AL.XliffStudio` review note; confirmed comment/`.lng`/AI fills are written as `translated` and added to `.lng`.
 - Improves action labels/tooltips, disables conflicting actions while a fill is running, and keeps the sticky table header aligned automatically with the resized editor toolbar.
 - Adds row-border state cues and more compact status text (`source → target`, visible/total, missing, review, proposals, errors).
 - Adds regression coverage for the whole-file Fill Missing control, per-row Fill workflow, redesigned editor structure, and fuzzy review-note insertion.
@@ -101,7 +115,7 @@
 
 ## 1.1.0
 
-- Adds a full **BC XLIFF Editor** custom editor for `.xlf` files with Source, Translation, Proposed translation, Status, Notes, and row actions.
+- Adds a full **AL Xliff Studio — XLIFF Editor** custom editor for `.xlf` files with Source, Translation, Proposed translation, Status, Notes, and row actions.
 - Adds independent per-column filters plus global filtering and sortable Source/Translation/Proposal/Status/Notes columns. Sorting is visual only and never reorders XLIFF trans-units.
 - Adds quick filters for missing translations, review-state targets, and rows with proposals.
 - Reuses Developer-comment and companion `.lng` translations as non-destructive proposals in the editor; optional fuzzy matches include their quality/origin.
@@ -113,7 +127,7 @@
 - Displays and protects `translate="no"` units; these are now also excluded from missing-translation processing.
 - Adds inline `maxwidth` length/violation feedback and structural duplicate warnings.
 - Adds direct target editing with placeholder validation and editable XLIFF target states.
-- Adds **BC XLIFF: Open Visual XLIFF Editor** and Explorer/editor-title context-menu integration.
+- Adds **AL Xliff Studio: Open Visual XLIFF Editor** and Explorer/editor-title context-menu integration.
 - Adds regression tests for the XLIFF webview, editor contribution, unit editing/status changes, and `translate="no"` protection.
 
 ## 1.0.11
@@ -123,7 +137,7 @@
 - Excludes review-state targets from `.lng` translation memory so unconfirmed fuzzy/merge/source-change candidates cannot become trusted lookup entries.
 - Moves source-change synchronization before translation lookup and copies the current `<source>` content from the matching `.g.xlf` into the translation XLIFF.
 - Matches generator files by basename first (`MyApp.de-DE.xlf` → `MyApp.g.xlf`) and refuses to guess when multiple fallback `.g.xlf` files exist.
-- Source-change handling is no longer blocked by unrelated `BC.XliffMap` fuzzy/merge notes; only the specific source-change note is idempotent.
+- Source-change handling is no longer blocked by unrelated `AL.XliffStudio` fuzzy/merge notes; only the specific source-change note is idempotent.
 - Existing usable targets whose source changed are preserved as `needs-l10n`; empty/new/`needs-translation` targets remain eligible for normal translation.
 - Adds generator source-language and duplicate-id safety checks before source synchronization.
 - Splits duplicate-id and duplicate-`Xliff Generator`-note validation into independent settings.
@@ -142,7 +156,7 @@
 - Adds a `maxwidth` check that reports filled target texts exceeding their trans-unit's declared maximum width.
 - Adds an opt-in fuzzy/similarity translation-memory match (Levenshtein-based) that fills a close `.lng` match and flags it `needs-review-translation`; fuzzy matches are never written back into `.lng`.
 - Adds source-change detection: already-translated trans-units are compared by id against the sibling `*.g.xlf` file, and a changed source text is flagged `needs-l10n` with a review note.
-- Adds the `BC XLIFF: Merge Translations Between Files` command with three modes (Untranslated/Overwrite/Add) to copy translations between two already-translated XLIFF files.
+- Adds the `AL Xliff Studio: Merge Translations Between Files` command with three modes (Untranslated/Overwrite/Add) to copy translations between two already-translated XLIFF files.
 - Adds friendlier error reporting when an XLIFF or `.lng` file cannot be read or written (e.g. locked by another process).
 - Adds regression coverage for all of the above.
 

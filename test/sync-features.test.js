@@ -71,7 +71,7 @@ test('flagSourceChangedUnits sets needs-l10n and appends a review note once', ()
     const first = flagSourceChangedUnits(xlf, new Set(['A']));
     assert.equal(first.flaggedCount, 1);
     assert.match(first.text, /state="needs-l10n"/);
-    assert.match(first.text, /BC\.XliffMap/);
+    assert.match(first.text, /AL\.XliffStudio/);
 
     const second = flagSourceChangedUnits(first.text, new Set(['A']));
     assert.equal(second.flaggedCount, 0);
@@ -139,9 +139,9 @@ test('review states are preserved and are not considered missing for AI/fill', (
     assert.deepEqual(translatedPairs(parsed).entries, []);
 });
 
-test('source synchronization updates source and is not blocked by unrelated BC.XliffMap notes', () => {
+test('source synchronization updates source and is not blocked by unrelated AL.XliffStudio notes', () => {
     const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
-<trans-unit id="A"><source>Old text</source><target state="needs-review-translation">Alter Text</target><note from="BC.XliffMap">Fuzzy match (90%) from &quot;Older text&quot;. Please review.</note></trans-unit>
+<trans-unit id="A"><source>Old text</source><target state="needs-review-translation">Alter Text</target><note from="AL.XliffStudio">Fuzzy match (90%) from &quot;Older text&quot;. Please review.</note></trans-unit>
 </group></body></file></xliff>`;
     const target = parseXliff(targetText);
     const source = parseXliff(`<xliff><file source-language="en-US"><body><group>
@@ -253,8 +253,8 @@ test('merge blocks structurally ambiguous XLIFF files', () => {
 test('duplicate id and generator-note validation can be configured independently', () => {
     const pkg = require('../package.json');
     const props = pkg.contributes.configuration.properties;
-    assert.equal(props['bcXliffLanguageMap.validation.checkDuplicateIds'].default, true);
-    assert.equal(props['bcXliffLanguageMap.validation.checkDuplicateGeneratorNotes'].default, true);
+    assert.equal(props['alXliffStudio.validation.checkDuplicateIds'].default, true);
+    assert.equal(props['alXliffStudio.validation.checkDuplicateGeneratorNotes'].default, true);
 });
 
 test('synchronizeTranslationUnits updates sources, adds new units and keeps obsolete units', () => {
