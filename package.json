@@ -2,7 +2,7 @@
   "name": "al-xliff-studio",
   "displayName": "AL Xliff Studio",
   "description": "Visual XLIFF editing, synchronization, translation memory, review workflows, and VS Code AI translation support for Microsoft Dynamics 365 Business Central AL apps.",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "publisher": "sebastian-tools",
   "license": "MIT",
   "engines": {
