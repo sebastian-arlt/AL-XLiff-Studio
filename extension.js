@@ -67,12 +67,6 @@ function activate(context) {
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.mergeTranslations`, () => mergeTranslations()),
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.openXliffEditor`, uri => openXliffEditor(uri)),
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.openDashboard`, () => TranslationDashboard.createOrShow(context)),
-        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openGuidedTranslation`, async (uri, workflow) => {
-            if (!uri || !uri.fsPath || !/\.xlf$/i.test(uri.fsPath) || /\.g\.xlf$/i.test(uri.fsPath)) return;
-            const dashboard = TranslationDashboard.createOrShow(context);
-            const view = await dashboard.openWizard(uri);
-            if (workflow) await view.requestWorkflow(workflow);
-        }),
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.openAiUsage`, () => AiUsagePage.createOrShow(context)),
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.openAiDebugLog`, uri => openAiDebugLog(uri)),
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.openPerformanceDebugLog`, uri => openPerformanceDebugLog(uri)),
