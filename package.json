@@ -1,8 +1,8 @@
 {
   "name": "al-xliff-studio",
   "displayName": "AL Xliff Studio",
-  "description": "Visual XLIFF editing, synchronization, translation memory, review workflows, and VS Code AI translation support for Microsoft Dynamics 365 Business Central AL apps.",
-  "version": "1.2.2",
+  "description": "Übersetze Business-Central-AL-Apps in VS Code: Sprachübersicht, Guided Translation, visueller XLIFF Editor, Glossar, Qualitätsprüfung und AI-Vorschläge.",
+  "version": "1.11.83",
   "publisher": "sebastian-tools",
   "license": "MIT",
   "engines": {
@@ -22,7 +22,15 @@
     "Copilot",
     "XLIFF editor",
     "translation memory",
-    "localization workflow"
+    "localization workflow",
+    "dashboard",
+    "terminology",
+    "glossary",
+    "quality assurance",
+    "localization QA",
+    "hover",
+    "AL hover",
+    "translation navigation"
   ],
   "main": "./extension.js",
   "activationEvents": [
@@ -33,33 +41,80 @@
     "onCommand:alXliffStudio.mergeTranslations",
     "onCustomEditor:alXliffStudio.lngEditor",
     "onCustomEditor:alXliffStudio.xlfEditor",
-    "onCommand:alXliffStudio.openXliffEditor"
+    "onCommand:alXliffStudio.openXliffEditor",
+    "onCommand:alXliffStudio.openDashboard",
+    "onCommand:alXliffStudio.openAiUsage",
+    "onCommand:alXliffStudio.openAiDebugLog",
+    "onCommand:alXliffStudio.openPerformanceDebugLog",
+    "onView:alXliffStudio.dashboardLauncher",
+    "onCustomEditor:alXliffStudio.glossaryEditor",
+    "onCommand:alXliffStudio.openGlossary",
+    "onCommand:alXliffStudio.validateCurrent",
+    "onStartupFinished",
+    "onLanguage:al",
+    "onCommand:alXliffStudio.openTranslationUnit",
+    "onCommand:alXliffStudio.openGuidedTranslation"
   ],
   "contributes": {
     "commands": [
       {
+        "command": "alXliffStudio.openDashboard",
+        "title": "AL Xliff Studio: Translation Dashboard öffnen",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "alXliffStudio.openAiUsage",
+        "title": "AL Xliff Studio: AI-Nutzung anzeigen",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "alXliffStudio.openAiDebugLog",
+        "title": "AL Xliff Studio: AI-Protokoll öffnen",
+        "icon": "$(output)"
+      },
+      {
+        "command": "alXliffStudio.openPerformanceDebugLog",
+        "title": "AL Xliff Studio: Leistungsprotokoll öffnen",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "alXliffStudio.buildMaps",
-        "title": "AL Xliff Studio: Build/Update Language Maps"
+        "title": "AL Xliff Studio: Sprachdateien aktualisieren"
       },
       {
         "command": "alXliffStudio.fillMissing",
-        "title": "AL Xliff Studio: Fill Missing Translations"
+        "title": "AL Xliff Studio: Fehlende Übersetzungen ergänzen"
       },
       {
         "command": "alXliffStudio.fillMissingCurrent",
-        "title": "AL Xliff Studio: Fill Missing Translations in Current File"
+        "title": "AL Xliff Studio: Fehlende Übersetzungen dieser Datei ergänzen"
       },
       {
         "command": "alXliffStudio.selectAiModel",
-        "title": "AL Xliff Studio: Select Translation AI Model"
+        "title": "AL Xliff Studio: AI-Modell auswählen"
       },
       {
         "command": "alXliffStudio.mergeTranslations",
-        "title": "AL Xliff Studio: Merge Translations Between Files"
+        "title": "AL Xliff Studio: Übersetzungen aus anderen Dateien übernehmen"
       },
       {
         "command": "alXliffStudio.openXliffEditor",
-        "title": "AL Xliff Studio: Open Visual XLIFF Editor"
+        "title": "AL Xliff Studio: XLIFF Editor öffnen"
+      },
+      {
+        "command": "alXliffStudio.openGlossary",
+        "title": "AL Xliff Studio: Glossar öffnen",
+        "icon": "$(book)"
+      },
+      {
+        "command": "alXliffStudio.validateCurrent",
+        "title": "AL Xliff Studio: Übersetzungsqualität prüfen",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "alXliffStudio.openGuidedTranslation",
+        "title": "AL Xliff Studio: Guided Translation öffnen",
+        "icon": "$(wand)"
       }
     ],
     "menus": {
@@ -73,6 +128,11 @@
           "command": "alXliffStudio.openXliffEditor",
           "when": "resourceExtname == .xlf",
           "group": "navigation@49"
+        },
+        {
+          "command": "alXliffStudio.validateCurrent",
+          "when": "resourceExtname == .xlf",
+          "group": "navigation@48"
         }
       ],
       "editor/title/context": [
@@ -85,6 +145,17 @@
           "command": "alXliffStudio.openXliffEditor",
           "when": "resourceExtname == .xlf",
           "group": "navigation@49"
+        },
+        {
+          "command": "alXliffStudio.validateCurrent",
+          "when": "resourceExtname == .xlf",
+          "group": "navigation@48"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "alXliffStudio.openGuidedTranslation",
+          "when": "false"
         }
       ]
     },
@@ -108,6 +179,19 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "alXliffStudio.glossaryEditor",
+        "displayName": "AL Xliff Studio — Terminology Glossary",
+        "selector": [
+          {
+            "filenamePattern": "**/.alxliffstudio/glossary.json"
+          },
+          {
+            "filenamePattern": ".al-xliff-glossary.json"
+          }
+        ],
+        "priority": "default"
       }
     ],
     "configuration": {
@@ -123,20 +207,71 @@
           "default": "**/*.g.xlf",
           "description": "Glob excluded from XLIFF processing. The generated .g.xlf should normally stay excluded."
         },
+        "alXliffStudio.hover.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Zeigt vorhandene Übersetzungen direkt beim Bewegen der Maus über AL-Texte. Ein Klick öffnet den passenden XLIFF-Eintrag."
+        },
         "alXliffStudio.treatNeedsTranslationAsMissing": {
           "type": "boolean",
           "default": true,
-          "description": "Treat empty/new/needs-translation XLIFF targets as missing. Review/adaptation/l10n states with target text are preserved for human review and are not sent to AI."
+          "description": "Treat empty/new/needs-translation XLIFF targets as missing. Review/adaptation/l10n states and non-empty targets without a state are preserved for human review and are not sent to AI."
         },
         "alXliffStudio.setTranslatedState": {
           "type": "boolean",
           "default": true,
-          "description": "Set filled target elements to state=translated."
+          "description": "Kennzeichnet übernommene Übersetzungen als übersetzt."
         },
         "alXliffStudio.ai.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Use a VS Code language model only after no Developer-comment translation and no companion .lng match was found."
+          "description": "Erlaubt AI-Vorschläge, wenn lokale Übersetzungen nicht ausreichen. Vorschläge werden erst nach deiner Bestätigung übernommen."
+        },
+        "alXliffStudio.debug.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable AL Xliff Studio debug logging. When enabled, raw AI translation prompts, raw model responses, parse results, and errors are written to .alxliffstudio/debug/ai-debug.log. The log can contain project translation text and is excluded from Git by default."
+        },
+        "alXliffStudio.debug.performance.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable detailed performance tracing for AL Xliff Studio. Timings, phases, long-running operations, webview render durations, document versions, unit counts, and memory snapshots are written to .alxliffstudio/debug/performance.log."
+        },
+        "alXliffStudio.debug.performance.slowThresholdMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000,
+          "default": 250,
+          "description": "Performance debug threshold in milliseconds. Operations or phases at or above this duration are marked SLOW in performance.log. Only used when performance debugging is enabled."
+        },
+        "alXliffStudio.performance.workerThreads.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Run XLIFF parsing and Quality Check in a worker thread for very large XLIFF files so the VS Code extension host remains responsive."
+        },
+        "alXliffStudio.performance.workerThreads.minFileSizeMB": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 3,
+          "scope": "resource",
+          "description": "Minimum approximate XLIFF text size in MiB at which AL Xliff Studio offloads parsing and Quality Check to a worker thread."
+        },
+        "alXliffStudio.performance.workerThreads.minUnits": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 100000,
+          "default": 5000,
+          "scope": "resource",
+          "description": "Minimum trans-unit count at which AL Xliff Studio offloads parsing and Quality Check to a worker thread."
+        },
+        "alXliffStudio.performance.documentSessionCacheMB": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2048,
+          "default": 384,
+          "description": "Approximate memory budget in MiB for cached parsed XLIFF DocumentSession snapshots. Active editor sessions stay pinned; older background/dashboard snapshots are evicted first when the budget is exceeded."
         },
         "alXliffStudio.ai.vendor": {
           "type": "string",
@@ -160,6 +295,51 @@
           "default": 20,
           "description": "Number of source strings per AI translation request."
         },
+        "alXliffStudio.ai.usage.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Erfasst die AI-Nutzung deiner Übersetzungen und speichert die Statistik im Projekt."
+        },
+        "alXliffStudio.ai.context.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Add structured Business Central/XLIFF context to AI requests, including generator path, Developer notes, nearby units, translation-memory examples, current target metadata, placeholders, maxwidth, and glossary terms."
+        },
+        "alXliffStudio.ai.context.nearbyUnits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 4,
+          "description": "Maximum number of nearby trans-units from the same AL object included as AI context."
+        },
+        "alXliffStudio.ai.context.translationMemoryExamples": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3,
+          "description": "Maximum number of similar confirmed companion .lng translations included as AI examples."
+        },
+        "alXliffStudio.ai.context.minimumMemorySimilarity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 35,
+          "description": "Minimum similarity percentage for a companion .lng entry to be included as an AI context example. This does not accept the entry as a fuzzy translation."
+        },
+        "alXliffStudio.ai.context.sameSourceContexts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3,
+          "description": "Maximum number of other trans-units with the same English source included to help disambiguate context-specific translations."
+        },
+        "alXliffStudio.ai.context.maxCharactersPerItem": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 20000,
+          "default": 6000,
+          "description": "Approximate maximum structured context size per AI translation item. Broad context is trimmed before authoritative notes and generator metadata."
+        },
         "alXliffStudio.validation.checkDuplicateIds": {
           "type": "boolean",
           "default": true,
@@ -178,7 +358,7 @@
         "alXliffStudio.fuzzyMatch.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Fall back to the closest similarity match in the companion .lng file when no exact match exists. Applied translations are flagged state=needs-review-translation for human review."
+          "description": "Fall back to the closest similarity match in the companion .lng file after Developer comments, exact .lng lookup, and exact glossary lookup. Fuzzy matches are staged for review."
         },
         "alXliffStudio.fuzzyMatch.minimumQuality": {
           "type": "integer",
@@ -191,13 +371,126 @@
           "type": "boolean",
           "default": true,
           "description": "Compare already-translated trans-units against the sibling *.g.xlf file by id and flag state=needs-l10n when the source text changed."
+        },
+        "alXliffStudio.provenance.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Zeigt und speichert, woher eine Übersetzung stammt, zum Beispiel Entwicklerhinweis, Sprachdatei oder AI."
+        },
+        "alXliffStudio.glossary.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Nutzt das Projektglossar für passende Übersetzungen und einheitliche Fachbegriffe."
+        },
+        "alXliffStudio.glossary.path": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Optional custom path to the project terminology glossary. When empty, AL Xliff Studio uses <AL project>/.alxliffstudio/glossary.json and migrates a single legacy .al-xliff-glossary.json automatically."
+        },
+        "alXliffStudio.quality.autoRun.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run Quality Check for translation XLIFF files when the workspace opens and refresh diagnostics after XLIFF saves/file changes, glossary changes, workspace-folder changes, and relevant Quality/Glossary settings changes."
+        },
+        "alXliffStudio.quality.problemsNavigation.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Offer “AL Xliff Studio: Show translation unit” as a Quick Fix for AL Xliff Studio diagnostics in the VS Code Problems view. When disabled, diagnostics remain visible but no translation-unit navigation metadata or Quick Fix is provided."
+        },
+        "alXliffStudio.quality.maxProblemsDiagnostics": {
+          "type": "integer",
+          "default": 2000,
+          "minimum": 100,
+          "maximum": 50000,
+          "scope": "resource",
+          "description": "Maximum number of AL Xliff Studio Quality Check diagnostics published to the VS Code Problems view per XLIFF file. The full Quality Check result remains available in the XLIFF Editor."
+        },
+        "alXliffStudio.quality.checkSourceEqualsTarget": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quality Check: warn when source and target contain the same text (ignored when source and target languages are the same)."
+        },
+        "alXliffStudio.quality.checkWhitespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quality Check: warn when leading or trailing whitespace differs between source and target."
+        },
+        "alXliffStudio.quality.checkRepeatedWhitespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quality Check: warn about repeated spaces/tabs in the target when the source does not contain repeated horizontal whitespace."
+        },
+        "alXliffStudio.quality.checkDeveloperComment": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quality Check: warn when a translation differs from the unambiguous Developer Note suggestion for its target language."
+        },
+        "alXliffStudio.quality.checkPunctuation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quality Check: warn when final punctuation from the source is missing or different in the target."
+        },
+        "alXliffStudio.quality.checkPlaceholderOrder": {
+          "type": "boolean",
+          "default": true,
+          "description": "Legacy setting retained for compatibility. Placeholder order is unrestricted and no order warning is emitted."
+        },
+        "alXliffStudio.quality.checkFormattingSequences": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quality Check: report lost or added actual line breaks and AL backslash line-break markers. C-style escape spellings are not validated."
+        },
+        "alXliffStudio.quality.checkLengthDeviation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quality Check: warn about unusually strong target/source length deviations using conservative thresholds for non-trivial text."
+        },
+        "alXliffStudio.quality.checkNabResidues": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quality Check: warn about malformed/stale NAB workflow markers or NAB notes left on completed translations."
+        },
+        "alXliffStudio.quality.checkInconsistentTranslations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quality Check: warn when the same source text is translated differently within the XLIFF file."
+        },
+        "alXliffStudio.quality.checkSharedTargets": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quality Check: flag potentially suspicious cases where the same meaningful target is used for different source texts."
+        },
+        "alXliffStudio.quality.checkCopiedSourceTerms": {
+          "type": "boolean",
+          "default": false,
+          "description": "Quality Check: optionally flag likely untranslated English words copied from the source into a non-English target. Disabled by default because product/technical terms can create false positives."
         }
       }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "alXliffStudio",
+          "title": "AL Xliff Studio",
+          "icon": "resources/xliff-dashboard.svg"
+        }
+      ]
+    },
+    "views": {
+      "alXliffStudio": [
+        {
+          "id": "alXliffStudio.dashboardLauncher",
+          "name": "Project Overview"
+        }
+      ]
     }
   },
   "scripts": {
-    "test": "node --test",
-    "package": "vsce package --out al-xliff-studio.vsix"
+    "test": "node tools/run-tests.cjs",
+    "package": "vsce package --out al-xliff-studio-1.11.83.vsix --no-rewrite-relative-links",
+    "test:stress": "node tools/large-xlf-stress.cjs",
+    "check": "node tools/check-syntax.cjs"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.2.1"

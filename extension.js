@@ -11,28 +11,124 @@ const {
     detectSourceChanges,
     flagSourceChangedUnits
 } = require('./src/xliff');
-const { translateItems, chooseAiModelCommand } = require('./src/ai');
+const { translateItemsByKey, translateItemsByKeyDetailed, chooseAiModelCommand } = require('./src/ai');
 const { LanguageMapEditorProvider } = require('./src/editor');
 const { XliffEditorProvider } = require('./src/xlfEditor');
+const { TranslationDashboard } = require('./src/dashboard');
+const { AiUsagePage } = require('./src/aiUsagePage');
+const { GlossaryEditorProvider, openProjectGlossary, readProjectGlossary } = require('./src/glossaryEditor');
 const { resolveKnownTranslationForUnit } = require('./src/resolver');
+const { createAiTranslationItem, getAiContextOptions } = require('./src/aiContext');
 const { findDuplicateIds, findDuplicateGeneratorNotes, findMaxWidthViolations } = require('./src/validate');
 const { mergeTranslationUnits, validateMergeLanguages } = require('./src/merge');
 const { getGeneratorCompanionFilename } = require('./src/paths');
+const { getLanguageMapUri, migrateLegacyLanguageMapIfNeeded, migrateWorkspaceLegacyLanguageMaps } = require('./src/studioPaths');
 const { BRAND_NAME, COMMAND_PREFIX, CONFIG_SECTION } = require('./src/identity');
+const { provenanceFromResolved, provenanceFromAi, withAction } = require('./src/provenance');
+const { registerAutomaticQualityChecks } = require('./src/autoQuality');
+const { registerAlTranslationHover } = require('./src/alHover');
+const { openAiDebugLog } = require('./src/aiDebug');
+const { openPerformanceDebugLog } = require('./src/performanceDebug');
+const { registerActivityBar } = require('./src/activityBar');
+const { registerQualityDiagnosticNavigation } = require('./src/qualityDiagnosticNavigation');
+const { configureDocumentSessionCache, invalidateDocumentSession } = require('./src/documentSession');
+const { invalidateQualityAnalysis } = require('./src/qualityCoordinator');
+
+function applyDocumentSessionCacheConfiguration() {
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    const cacheMb = Number(config.get('performance.documentSessionCacheMB', 384));
+    const safeMb = Number.isFinite(cacheMb) ? Math.max(64, Math.min(2048, cacheMb)) : 384;
+    configureDocumentSessionCache({ maxBytes: Math.trunc(safeMb * 1024 * 1024) });
+}
 
 function activate(context) {
+    applyDocumentSessionCacheConfiguration();
+    // Cancellation is independent of automatic QA and of an open custom editor.
+    const cancelDocument = document => {
+        if (!document || !/\.xlf$/i.test(document.uri.fsPath || '')) return;
+        invalidateQualityAnalysis(document.uri);
+        invalidateDocumentSession(document.uri);
+    };
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeTextDocument(event => {
+            if (event.contentChanges && event.contentChanges.length) cancelDocument(event.document);
+        }),
+        vscode.workspace.onDidCloseTextDocument(cancelDocument),
+        { dispose() { invalidateQualityAnalysis(); invalidateDocumentSession(); } }
+    );
     context.subscriptions.push(
         LanguageMapEditorProvider.register(context),
         XliffEditorProvider.register(context),
+        GlossaryEditorProvider.register(context),
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.buildMaps`, () => buildMaps()),
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.fillMissing`, () => fillMissingTranslations()),
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.fillMissingCurrent`, uri => fillMissingTranslations(uri)),
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.selectAiModel`, () => chooseAiModelCommand()),
         vscode.commands.registerCommand(`${COMMAND_PREFIX}.mergeTranslations`, () => mergeTranslations()),
-        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openXliffEditor`, uri => openXliffEditor(uri))
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openXliffEditor`, uri => openXliffEditor(uri)),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openDashboard`, () => TranslationDashboard.createOrShow(context)),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openGuidedTranslation`, async (uri, workflow) => {
+            if (!uri || !uri.fsPath || !/\.xlf$/i.test(uri.fsPath) || /\.g\.xlf$/i.test(uri.fsPath)) return;
+            const dashboard = TranslationDashboard.createOrShow(context);
+            const view = await dashboard.openWizard(uri);
+            if (workflow) await view.requestWorkflow(workflow);
+        }),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openAiUsage`, () => AiUsagePage.createOrShow(context)),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openAiDebugLog`, uri => openAiDebugLog(uri)),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openPerformanceDebugLog`, uri => openPerformanceDebugLog(uri)),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.validateCurrent`, uri => validateCurrentXliff(uri)),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openGlossary`, uri => openProjectGlossary(uri)),
+        vscode.commands.registerCommand(`${COMMAND_PREFIX}.openTranslationUnit`, arg => openTranslationUnitFromHover(arg))
     );
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+        if (event && typeof event.affectsConfiguration === 'function' && event.affectsConfiguration(`${CONFIG_SECTION}.performance.documentSessionCacheMB`)) {
+            applyDocumentSessionCacheConfiguration();
+        }
+    }));
+    registerQualityDiagnosticNavigation(context, (uri, target) => XliffEditorProvider.openAtDiagnosticTarget(uri, target));
+    const qualityManager = registerAutomaticQualityChecks(context);
+    registerActivityBar(context, {
+        qualityManager,
+        syncAll: async () => {
+            const dashboard = TranslationDashboard.createOrShow(context);
+            await dashboard.synchronizeAll();
+        }
+    });
+    registerAlTranslationHover(context);
+    // Upgrade legacy companion maps in the background so Translations/ can remain
+    // XLIFF-only. Conflicting old/new maps are deliberately left untouched.
+    void migrateWorkspaceLegacyLanguageMaps().catch(() => undefined);
 }
 
+async function openTranslationUnitFromHover(arg) {
+    const value = arg && typeof arg === 'object' ? arg : {};
+    let uri;
+    try {
+        uri = value.uri ? vscode.Uri.parse(String(value.uri)) : undefined;
+    } catch (_) {
+        uri = undefined;
+    }
+    if (!uri || !uri.fsPath || !uri.fsPath.toLowerCase().endsWith('.xlf')) {
+        vscode.window.showWarningMessage(`${BRAND_NAME}: XLIFF target from hover is no longer available.`);
+        return;
+    }
+    await XliffEditorProvider.openAtUnit(uri, String(value.unitId || ''), String(value.source || ''));
+}
+
+
+
+async function validateCurrentXliff(uri) {
+    let target = uri;
+    if (!target || !target.fsPath) {
+        const active = vscode.window.activeTextEditor && vscode.window.activeTextEditor.document;
+        if (active && active.uri && active.uri.fsPath.toLowerCase().endsWith('.xlf')) target = active.uri;
+    }
+    if (!target || !target.fsPath || !target.fsPath.toLowerCase().endsWith('.xlf')) {
+        vscode.window.showInformationMessage(`${BRAND_NAME}: select an XLIFF file first.`);
+        return;
+    }
+    await XliffEditorProvider.openWithQuality(target);
+}
 
 async function openXliffEditor(uri) {
     let target = uri;
@@ -93,7 +189,7 @@ async function buildMaps(singleUri) {
                 if (hasStructuralViolations(parsed, uri, skippedFiles, { checkDuplicateIds, checkDuplicateGeneratorNotes })) continue;
 
                 const pairs = translatedPairs(parsed, { treatNeedsTranslationAsMissing: true });
-                const mapUri = getMapUri(uri, language);
+                const mapUri = await getMapUri(uri, language);
                 const existing = await readLngIfExists(mapUri);
                 const merged = mergeEntries(existing.entries, pairs.entries, { overwrite: true });
                 await writeText(mapUri, serializeLng(merged.entries, language));
@@ -126,6 +222,7 @@ async function fillMissingTranslations(singleUri) {
     const checkDuplicateGeneratorNotes = config.get('validation.checkDuplicateGeneratorNotes', true);
     const checkMaxWidth = config.get('validation.checkMaxWidth', true);
     const sourceChangeEnabled = config.get('sourceChangeDetection.enabled', true);
+    const provenanceEnabled = config.get('provenance.enabled', true) !== false;
     const fuzzyOptions = {
         enabled: config.get('fuzzyMatch.enabled', false),
         minimumQuality: config.get('fuzzyMatch.minimumQuality', 80)
@@ -134,6 +231,7 @@ async function fillMissingTranslations(singleUri) {
     let mapHits = 0;
     let commentHits = 0;
     let fuzzyHits = 0;
+    let glossaryHits = 0;
     let aiHits = 0;
     let stillMissing = 0;
     let maxWidthViolationCount = 0;
@@ -147,12 +245,12 @@ async function fillMissingTranslations(singleUri) {
     const workItems = [];
 
     // Phase 1 is strictly deterministic and is completed before AI is even
-    // considered: Developer comment -> companion .lng. These translations are
+    // considered: Developer comment -> companion .lng -> exact project glossary. These translations are
     // written first. Only the trans-units that are still missing afterwards
     // are allowed to contribute to the AI prompt/count.
     const deterministicCancelled = await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: 'AL Xliff Studio: applying comments and language maps',
+        title: 'AL Xliff Studio: applying local translation sources',
         cancellable: true
     }, async (progress, token) => {
         for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
@@ -207,8 +305,10 @@ async function fillMissingTranslations(singleUri) {
                 }
             }
 
-            const mapUri = getMapUri(uri, language);
+            const mapUri = await getMapUri(uri, language);
             const existingMap = await readLngIfExists(mapUri);
+            const glossary = config.get('glossary.enabled', true) ? await readProjectGlossary(uri) : { entries: [] };
+            const glossaryEntries = glossary.entries || [];
 
             // Keep the companion map current with already translated XLIFF
             // entries before using it as lookup memory in this same run.
@@ -226,9 +326,10 @@ async function fillMissingTranslations(singleUri) {
                     // Fixed priority for this exact trans-unit:
                     // 1. Developer comment
                     // 2. companion .lng (exact match)
-                    // 3. companion .lng (fuzzy/similarity match, opt-in, flagged for review)
+                    // 3. project terminology glossary (exact source-term match)
+                    // 4. companion .lng (fuzzy/similarity match, opt-in, flagged for review)
                     // AI is intentionally not part of this phase.
-                    const resolved = resolveKnownTranslationForUnit(unit, units, language, companionMap, fuzzyOptions);
+                    const resolved = resolveKnownTranslationForUnit(unit, units, language, companionMap, fuzzyOptions, glossaryEntries);
                     if (resolved.commentConflict) {
                         commentConflictKeys.add(`${uri.toString()}\u0000${source}`);
                     }
@@ -239,17 +340,22 @@ async function fillMissingTranslations(singleUri) {
                         translationByOrdinal.set(unit.ordinal, {
                             text: resolved.translation,
                             review: true,
-                            note: `Fuzzy match (${resolved.quality}%) from "${resolved.matchedSource}". Please review.`
+                            note: `Fuzzy match (${resolved.quality}%) from "${resolved.matchedSource}". Please review.`,
+                            provenance: provenanceEnabled ? withAction(provenanceFromResolved(resolved, 'proposal'), 'staged-for-review') : undefined
                         });
                         fuzzyHits++;
                         // Unconfirmed fuzzy matches must not pollute the .lng translation memory.
                         continue;
                     }
 
-                    translationByOrdinal.set(unit.ordinal, resolved.translation);
+                    translationByOrdinal.set(unit.ordinal, {
+                        text: resolved.translation,
+                        provenance: provenanceEnabled ? withAction(provenanceFromResolved(resolved, 'draft'), 'applied') : undefined
+                    });
                     addSourceCandidate(sourceCandidates, source, resolved.translation);
                     if (resolved.source === 'comment') commentHits++;
                     if (resolved.source === 'map') mapHits++;
+                    if (resolved.source === 'glossary') glossaryHits++;
                 }
             }
 
@@ -289,15 +395,11 @@ async function fillMissingTranslations(singleUri) {
             const remainingUnits = afterDeterministic.units.filter(unit =>
                 isMissingTranslation(unit, treatNeedsTranslationAsMissing)
             );
-            const unresolvedBySource = groupUnitsBySource(remainingUnits);
-            const aiItems = [...unresolvedBySource.entries()].map(([source, units]) => ({
-                key: units[0].id || source,
-                source,
-                context: units
-                    .flatMap(unit => unit.notes || [])
-                    .filter((value, index, values) => value && values.indexOf(value) === index)
-                    .join(' | ')
-            }));
+            const aiContextOptions = getAiContextOptions(config);
+            const aiCompanionMap = entriesToMap(mapMerged.entries);
+            const aiItems = remainingUnits.map(unit =>
+                createAiTranslationItem(unit, afterDeterministic, aiCompanionMap, glossaryEntries, aiContextOptions)
+            );
 
             workItems.push({
                 uri,
@@ -306,8 +408,8 @@ async function fillMissingTranslations(singleUri) {
                 language,
                 mapUri,
                 mapEntries: mapMerged.entries,
-                unresolvedBySource,
-                aiItems
+                aiItems,
+                glossaryEntries
             });
         }
         return false;
@@ -346,7 +448,7 @@ async function fillMissingTranslations(singleUri) {
 
                 try {
                     let fileAiCompleted = 0;
-                    const aiTranslations = await translateItems(
+                    const aiDetailed = await translateItemsByKeyDetailed(
                         work.aiItems,
                         work.parsed.sourceLanguage,
                         work.language,
@@ -359,20 +461,24 @@ async function fillMissingTranslations(singleUri) {
                                 message: `${Math.min(aiCompleted, aiPendingCount)} / ${aiPendingCount}`,
                                 increment: aiPendingCount > 0 ? (delta * 100) / aiPendingCount : 0
                             });
-                        }
+                        },
+                        work.uri
                     );
+                    const aiTranslations = aiDetailed.translations;
+                    const aiProvenance = provenanceEnabled
+                        ? withAction(provenanceFromAi(aiDetailed.model, 'proposal'), 'applied')
+                        : undefined;
 
                     const aiTranslationByOrdinal = new Map();
                     const aiSourceCandidates = new Map();
-                    for (const [source, translation] of aiTranslations) {
-                        const units = work.unresolvedBySource.get(source) || [];
-                        for (const unit of units) {
-                            aiTranslationByOrdinal.set(unit.ordinal, translation);
-                        }
-                        if (units.length) {
-                            addSourceCandidate(aiSourceCandidates, source, translation);
-                            aiHits++;
-                        }
+                    for (const item of work.aiItems) {
+                        const translation = aiTranslations.get(item.key);
+                        if (!translation) continue;
+                        const unit = work.parsed.units[item.ordinal];
+                        if (!unit) continue;
+                        aiTranslationByOrdinal.set(item.ordinal, { text: translation, provenance: aiProvenance });
+                        addSourceCandidate(aiSourceCandidates, unit.source, translation);
+                        aiHits++;
                     }
 
                     const aiUpdate = updateMissingTranslations(work.currentText, new Map(), {
@@ -442,7 +548,7 @@ async function fillMissingTranslations(singleUri) {
         : '';
 
     vscode.window.showInformationMessage(
-        `AL Xliff Studio: ${changedFileKeys.size} XLIFF file(s) changed; ${commentHits} Developer-comment translation(s), ${mapHits} translation-memory hit(s)${fuzzyText}, ${aiHits} AI translation(s), ${stillMissing} trans-unit(s) still missing.${aiStatus}${commentConflictText}${mapConflictText}${maxWidthText}${sourceChangedText}`
+        `AL Xliff Studio: ${changedFileKeys.size} XLIFF file(s) changed; ${commentHits} Developer-comment translation(s), ${mapHits} translation-memory hit(s), ${glossaryHits} glossary hit(s)${fuzzyText}, ${aiHits} AI translation(s), ${stillMissing} trans-unit(s) still missing.${aiStatus}${commentConflictText}${mapConflictText}${maxWidthText}${sourceChangedText}`
     );
     reportSkippedAndFailed(skippedFiles, failedFiles);
 }
@@ -547,7 +653,11 @@ async function mergeTranslations() {
         ], { placeHolder: 'Merge mode' });
         if (!modePick) return;
 
-        const result = mergeTranslationUnits(targetText, targetParsed, sourceParsed, modePick.mode);
+        const mergeConfig = vscode.workspace.getConfiguration(CONFIG_SECTION);
+        const result = mergeTranslationUnits(targetText, targetParsed, sourceParsed, modePick.mode, {
+            provenanceEnabled: mergeConfig.get('provenance.enabled', true) !== false,
+            sourceText
+        });
         if (result.updatedCount === 0 && result.addedCount === 0) {
             vscode.window.showInformationMessage('AL Xliff Studio: nothing to merge.');
             return;
@@ -589,12 +699,8 @@ function addSourceCandidate(candidateMap, source, translation) {
     candidateMap.get(source).add(translation);
 }
 
-function getMapUri(xlfUri, language) {
-    const ext = path.extname(xlfUri.fsPath);
-    let base = xlfUri.fsPath.slice(0, -ext.length);
-    const localeSuffix = new RegExp(`\\.${escapeRegExp(language)}$`, 'i');
-    if (!localeSuffix.test(base)) base += `.${language}`;
-    return vscode.Uri.file(`${base}.lng`);
+async function getMapUri(xlfUri, language) {
+    return await migrateLegacyLanguageMapIfNeeded(xlfUri, language) || await getLanguageMapUri(xlfUri, language);
 }
 
 function inferLanguageFromFilename(filePath) {
@@ -625,6 +731,8 @@ async function readText(uri) {
 async function writeText(uri, text) {
     const openDocument = vscode.workspace.textDocuments.find(document => document.uri.toString() === uri.toString());
     if (!openDocument) {
+        const parent = vscode.Uri.joinPath(uri, '..');
+        if (vscode.workspace.fs.createDirectory) await vscode.workspace.fs.createDirectory(parent);
         await vscode.workspace.fs.writeFile(uri, Buffer.from(text, 'utf8'));
         return;
     }

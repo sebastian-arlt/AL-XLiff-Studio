@@ -7,6 +7,9 @@ const CONFIG_SECTION = 'alXliffStudio';
 const CONFIG_AI_SECTION = `${CONFIG_SECTION}.ai`;
 const LNG_EDITOR_VIEW_TYPE = `${COMMAND_PREFIX}.lngEditor`;
 const XLIFF_EDITOR_VIEW_TYPE = `${COMMAND_PREFIX}.xlfEditor`;
+const DASHBOARD_VIEW_TYPE = `${COMMAND_PREFIX}.translationDashboard`;
+const AI_USAGE_VIEW_TYPE = `${COMMAND_PREFIX}.aiUsage`;
+const GLOSSARY_EDITOR_VIEW_TYPE = `${COMMAND_PREFIX}.glossaryEditor`;
 const NOTE_FROM = 'AL.XliffStudio';
 
 function isStudioNoteFrom(value) {
@@ -21,6 +24,9 @@ module.exports = {
     CONFIG_AI_SECTION,
     LNG_EDITOR_VIEW_TYPE,
     XLIFF_EDITOR_VIEW_TYPE,
+    DASHBOARD_VIEW_TYPE,
+    AI_USAGE_VIEW_TYPE,
+    GLOSSARY_EDITOR_VIEW_TYPE,
     NOTE_FROM,
     isStudioNoteFrom
 };

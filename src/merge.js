@@ -1,8 +1,9 @@
 'use strict';
 
-const { getAttribute, setAttribute, encodeXmlText, isMissingTranslation } = require('./xliff');
+const { getAttribute, getUnitRaw, setAttribute, encodeXmlText, isMissingTranslation, removeNabNotes } = require('./xliff');
 const { findDuplicateIds, findDuplicateGeneratorNotes } = require('./validate');
 const { NOTE_FROM } = require('./identity');
+const { createProvenance, serializeProvenanceNote } = require('./provenance');
 
 const MERGE_NOTE = 'Copied from another xliff file. Please review the translation.';
 const MERGE_STATE = 'needs-adaptation';
@@ -104,7 +105,7 @@ function findMatch(targetUnit, lookup) {
 
 // Merges translations from sourceParsed into targetText.
 // Matching order per trans-unit: id -> unique "Xliff Generator" note -> unique source text.
-function mergeTranslationUnits(targetText, targetParsed, sourceParsed, mode) {
+function mergeTranslationUnits(targetText, targetParsed, sourceParsed, mode, options = {}) {
     const languageCheck = validateMergeLanguages(targetParsed, sourceParsed);
     if (!languageCheck.compatible) {
         const error = new Error(languageCheck.reason);
@@ -142,16 +143,22 @@ function mergeTranslationUnits(targetText, targetParsed, sourceParsed, mode) {
             const translation = translationById.get(id);
             if (translation === undefined) return unitRaw;
             updatedCount++;
-            return writeMergedTarget(unitRaw, translation, eol);
+            return writeMergedTarget(unitRaw, translation, eol, options);
         });
     }
 
     if (mode === 'add') {
+        const sourceText = typeof options.sourceText === 'string' ? options.sourceText : '';
+        if (!sourceText) {
+            throw new Error('Merge add mode requires the source XLIFF text to materialize trans-units from XML offsets.');
+        }
         const targetIds = new Set(targetParsed.units.map(unit => unit.id));
         const additions = [];
         for (const unit of sourceParsed.units) {
             if (!unit.target || isMissingTranslation(unit, true) || targetIds.has(unit.id)) continue;
-            additions.push(writeMergedTarget(unit.raw, unit.target, eol));
+            const unitRaw = getUnitRaw(sourceText, unit);
+            if (!unitRaw) continue;
+            additions.push(writeMergedTarget(unitRaw, unit.target, eol, options));
         }
         const groupCloseRe = /(<\/group>)/i;
         if (additions.length && groupCloseRe.test(result)) {
@@ -163,7 +170,7 @@ function mergeTranslationUnits(targetText, targetParsed, sourceParsed, mode) {
     return { text: result, updatedCount, addedCount };
 }
 
-function writeMergedTarget(unitRaw, translation, eol) {
+function writeMergedTarget(unitRaw, translation, eol, options = {}) {
     const escaped = encodeXmlText(translation);
     const targetRe = /<target\b([^>]*)>([\s\S]*?)<\/target>/i;
     const selfClosingTargetRe = /<target\b([^>]*)\/\s*>/i;
@@ -189,7 +196,26 @@ function writeMergedTarget(unitRaw, translation, eol) {
             }
         }
     }
-    return appendMergeNote(updated, eol);
+    // A merge resolves any NAB text marker in the target. Remove the matching
+    // NAB explanation note as well so stale NAB workflow metadata is not kept
+    // next to the Studio's needs-adaptation state.
+    updated = removeNabNotes(updated);
+    updated = appendMergeNote(updated, eol);
+    return options.provenanceEnabled === false ? updated : appendMergeProvenance(updated, eol);
+}
+
+
+function appendMergeProvenance(unitRaw, eol) {
+    const noteText = serializeProvenanceNote(createProvenance('merge', { action: 'merged-for-review' }));
+    if (!noteText) return unitRaw;
+    const targetCloseRe = /(<target\b[^>]*>[\s\S]*?<\/target>|<target\b[^>]*\/\s*>)/i;
+    const targetMatch = unitRaw.match(targetCloseRe);
+    if (!targetMatch) return unitRaw;
+    const beforeTarget = unitRaw.slice(0, targetMatch.index);
+    const indentMatch = beforeTarget.match(/(?:^|\r?\n)([ \t]*)$/);
+    const indent = indentMatch ? indentMatch[1] : '          ';
+    const note = `<note from="${MERGE_NOTE_FROM}" annotates="general" priority="1">${encodeXmlText(noteText)}</note>`;
+    return unitRaw.replace(targetCloseRe, `$1${eol}${indent}${note}`);
 }
 
 function appendMergeNote(unitRaw, eol) {
