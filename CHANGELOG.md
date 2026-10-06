@@ -1,3 +1,7 @@
+# 1.11.85
+
+- Bildadressen und technische Referenz der Erweiterungsübersicht verwenden ausdrücklich den GitHub-Branch main.
+
 # 1.11.84
 
 - Extension Details: Bilder und technische Referenz verwenden absolute GitHub-HTTPS-Adressen. Repository-Metadaten und Paketierung korrigiert.

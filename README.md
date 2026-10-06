@@ -8,7 +8,7 @@ AL Xliff Studio hilft dir, die Texte deiner Microsoft Dynamics 365 Business Cent
 
 Das **Translation Dashboard** zeigt den Stand jeder Sprache: fertige Übersetzungen, fehlende Texte, Einträge zur Prüfung und Qualitätsprobleme. Öffne den Wizard oder den XLIFF Editor direkt neben einer Datei. Eine nicht synchronisierte Sprache kannst du einzeln aktualisieren.
 
-![Translation Dashboard mit drei Sprachen, Fortschritt und direkten Aktionen](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/HEAD/resources/overview/dashboard.png)
+![Translation Dashboard mit drei Sprachen, Fortschritt und direkten Aktionen](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/main/resources/overview/dashboard.png)
 
 ## Schritt für Schritt übersetzen
 
@@ -21,7 +21,7 @@ Das **Translation Dashboard** zeigt den Stand jeder Sprache: fertige Übersetzun
 
 Passt ein Entwicklerhinweis zur Zielsprache und weicht die Übersetzung davon ab, erscheint der Hinweis als Vorschlag. Am Ende siehst du die offenen Aufgaben und kannst direkt mit Review, übersprungenen Einträgen oder Qualitätskorrekturen weitermachen.
 
-![Guided Translation zeigt Quelltext, aktuelle Übersetzung und den passenden Entwicklertext als Vorschlag](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/HEAD/resources/overview/guided.png)
+![Guided Translation zeigt Quelltext, aktuelle Übersetzung und den passenden Entwicklertext als Vorschlag](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/main/resources/overview/guided.png)
 
 ## Mehrere Texte gezielt bearbeiten
 
@@ -29,7 +29,7 @@ Im **XLIFF Editor** kannst du Übersetzungen nebeneinander bearbeiten und nach f
 
 Die **Lupe** öffnet die zugehörige AL-Definition, etwa ein Label, eine Caption oder einen ToolTip. Entwicklerhinweise und Herkunftsinformationen helfen dir, den Text im richtigen Zusammenhang zu übersetzen.
 
-![XLIFF Editor mit Quelltexten, Übersetzungen, Status und Entwicklerhinweisen](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/HEAD/resources/overview/editor.png)
+![XLIFF Editor mit Quelltexten, Übersetzungen, Status und Entwicklerhinweisen](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/main/resources/overview/editor.png)
 
 ## Vorhandene Arbeit wiederverwenden
 
@@ -54,4 +54,4 @@ Für eine neue Sprache kannst du zuerst Sync prüfen und lokale Übersetzungen v
 
 Die Bilder zeigen die tatsächlichen Erweiterungsansichten mit Beispieldaten. AL Xliff Studio benötigt VS Code 1.97 oder neuer. Eine lokale VSIX installierst du über **Extensions: Install from VSIX…**.
 
-[Technische Referenz und weitere Einstellungen](https://github.com/sebastian-arlt/AL-XLiff-Studio/blob/HEAD/docs/technical-reference.md)
+[Technische Referenz und weitere Einstellungen](https://github.com/sebastian-arlt/AL-XLiff-Studio/blob/main/docs/technical-reference.md)

@@ -1,5 +1,5 @@
-# AL Xliff Studio 1.11.84
+# AL Xliff Studio 1.11.85
 
-README image links now use absolute raw.githubusercontent.com HTTPS URLs for sebastian-arlt/AL-XLiff-Studio. HEAD tracks the repository default branch without guessing its name. Repository, homepage and issues metadata added. Packaging no longer disables relative-link rewriting; base image/content URLs are explicit.
+README image URLs and package base URLs now explicitly use the main branch of sebastian-arlt/AL-XLiff-Studio. Images use raw.githubusercontent.com so VS Code receives PNG content instead of a GitHub HTML page. The technical-reference link uses github.com/blob/main.
 
-Changed: README.md, package.json, package-lock.json, CHANGELOG.md, CHANGE_REPORT.md. Screenshots remain in resources/overview and must exist at that path in the public repository. Public availability could not be verified from this environment (web fetch failed and local network lookup failed); no upload was performed.
+Changed: README.md, package.json, package-lock.json, CHANGELOG.md, CHANGE_REPORT.md. No application logic changed.
