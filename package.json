@@ -2,7 +2,7 @@
   "name": "al-xliff-studio",
   "displayName": "AL Xliff Studio",
   "description": "Übersetze Business-Central-AL-Apps in VS Code: Sprachübersicht, Guided Translation, visueller XLIFF Editor, Glossar, Qualitätsprüfung und AI-Vorschläge.",
-  "version": "1.11.83",
+  "version": "1.11.84",
   "publisher": "sebastian-tools",
   "license": "MIT",
   "engines": {
@@ -488,12 +488,20 @@
   },
   "scripts": {
     "test": "node tools/run-tests.cjs",
-    "package": "vsce package --out al-xliff-studio-1.11.83.vsix --no-rewrite-relative-links",
+    "package": "vsce package --out al-xliff-studio-1.11.84.vsix --baseContentUrl https://github.com/sebastian-arlt/AL-XLiff-Studio/blob/HEAD/ --baseImagesUrl https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/HEAD/",
     "test:stress": "node tools/large-xlf-stress.cjs",
     "check": "node tools/check-syntax.cjs"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.2.1"
   },
-  "icon": "al-xliff-studio.png"
+  "icon": "al-xliff-studio.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sebastian-arlt/AL-XLiff-Studio.git"
+  },
+  "homepage": "https://github.com/sebastian-arlt/AL-XLiff-Studio#readme",
+  "bugs": {
+    "url": "https://github.com/sebastian-arlt/AL-XLiff-Studio/issues"
+  }
 }

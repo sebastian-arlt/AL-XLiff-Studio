@@ -1,3 +1,7 @@
+# 1.11.84
+
+- Extension Details: Bilder und technische Referenz verwenden absolute GitHub-HTTPS-Adressen. Repository-Metadaten und Paketierung korrigiert.
+
 # 1.11.83
 
 - Rewritten extension Details page with concise German explanations, a short start guide and three screenshots of actual Dashboard, Guided Translation and Editor views using example data.
