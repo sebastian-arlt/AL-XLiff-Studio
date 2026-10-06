@@ -1,3 +1,7 @@
 .serena/
 node_modules/
 *.vsix
+
+artifacts/
+*.log
+pnpm-lock.yaml

@@ -1,6 +1,8 @@
 'use strict';
 
 const { NOTE_FROM, isStudioNoteFrom } = require('./identity');
+const { serializeProvenanceNote, sanitizeProvenance } = require('./provenance');
+const { serializeQualityIgnoreNote, parseQualityIgnoreText } = require('./qualityIgnore');
 
 const { languageKeyMatches } = require('./languageCodes');
 
@@ -53,6 +55,31 @@ function stripXmlTags(value) {
     return value.replace(/<[^>]+>/g, '');
 }
 
+const NAB_TARGET_MARKERS = new Map([
+    ['REVIEW', { state: 'needs-review-translation', kind: 'review' }],
+    ['SUGGESTION', { state: 'needs-review-translation', kind: 'suggestion' }],
+    ['NOT TRANSLATED', { state: 'new', kind: 'not-translated' }]
+]);
+
+function parseNabTargetMarker(value) {
+    const text = String(value == null ? '' : value);
+    const match = text.match(/^\s*\[NAB:\s*(REVIEW|SUGGESTION|NOT TRANSLATED)\]/i);
+    if (!match) return undefined;
+    const key = match[1].toUpperCase();
+    const metadata = NAB_TARGET_MARKERS.get(key);
+    if (!metadata) return undefined;
+    return {
+        marker: `[NAB: ${key}]`,
+        kind: metadata.kind,
+        state: metadata.state,
+        text: text.slice(match[0].length)
+    };
+}
+
+function isNabNoteFrom(value) {
+    return String(value || '').trim().toLowerCase() === 'nab al tools';
+}
+
 function parseXliff(text) {
     const fileMatch = text.match(/<file\b([^>]*)>/i);
     const fileAttrs = fileMatch ? fileMatch[1] : '';
@@ -74,14 +101,16 @@ function parseXliff(text) {
         const selfClosingTargetMatch = targetMatch ? undefined : body.match(/<target\b([^>]*)\/\s*>/i);
         const notes = [];
         const noteDetails = [];
-        const noteRe = /<note\b([^>]*)>([\s\S]*?)<\/note>/gi;
+        const noteRe = /<note\b([^>]*?)(?:\/\s*>|>([\s\S]*?)<\/note>)/gi;
         let noteMatch;
         while ((noteMatch = noteRe.exec(body)) !== null) {
-            const noteText = decodeXmlEntities(stripXmlTags(noteMatch[2])).trim();
+            const rawNoteText = decodeXmlEntities(stripXmlTags(noteMatch[2] || ''));
+            const noteText = rawNoteText.trim();
             if (noteText) {
                 notes.push(noteText);
                 noteDetails.push({
                     text: noteText,
+                    ...(String(getAttribute(noteMatch[1], 'from') || '').toLowerCase() === 'developer' && rawNoteText !== noteText ? { rawText: rawNoteText } : {}),
                     from: getAttribute(noteMatch[1], 'from') || '',
                     annotates: getAttribute(noteMatch[1], 'annotates') || '',
                     priority: getAttribute(noteMatch[1], 'priority') || ''
@@ -89,8 +118,24 @@ function parseXliff(text) {
             }
         }
         const sourceRaw = sourceMatch[2];
+        const unitStartOffset = match.index;
+        const unitEndOffset = match.index + match[0].length;
+        const bodyStartOffset = unitStartOffset + match[0].indexOf('>') + 1;
+        const sourceTagStartOffset = bodyStartOffset + sourceMatch.index;
+        const sourceStartOffset = sourceTagStartOffset + sourceMatch[0].indexOf('>') + 1;
+        const sourceEndOffset = sourceStartOffset + sourceRaw.length;
         const effectiveTargetMatch = targetMatch || selfClosingTargetMatch;
         const targetRaw = targetMatch ? targetMatch[2] : (selfClosingTargetMatch ? '' : undefined);
+        const targetTagStartOffset = effectiveTargetMatch ? bodyStartOffset + effectiveTargetMatch.index : undefined;
+        const targetStartOffset = targetMatch
+            ? targetTagStartOffset + targetMatch[0].indexOf('>') + 1
+            : targetTagStartOffset;
+        const targetEndOffset = targetMatch
+            ? targetStartOffset + targetRaw.length
+            : targetStartOffset;
+        const decodedTarget = effectiveTargetMatch ? decodeXmlEntities(stripXmlTags(targetRaw)) : undefined;
+        const nabTarget = effectiveTargetMatch ? parseNabTargetMarker(decodedTarget) : undefined;
+        const rawTargetState = effectiveTargetMatch ? getAttribute(effectiveTargetMatch[1], 'state') : undefined;
         const maxWidthAttr = getAttribute(unitAttrs, 'maxwidth');
         const maxWidth = maxWidthAttr ? parseInt(maxWidthAttr, 10) : undefined;
         units.push({
@@ -98,15 +143,26 @@ function parseXliff(text) {
             id: getAttribute(unitAttrs, 'id') || '',
             source: decodeXmlEntities(stripXmlTags(sourceRaw)),
             sourceRaw,
-            target: effectiveTargetMatch ? decodeXmlEntities(stripXmlTags(targetRaw)) : undefined,
+            // NAB AL Tools can encode workflow state as a textual target prefix when
+            // NAB.UseTargetStates=false. Treat those prefixes as metadata rather than
+            // translation text so they never leak into the editor, QA, AI context, or .lng.
+            target: nabTarget ? nabTarget.text : decodedTarget,
             targetRaw,
             targetAttrs: effectiveTargetMatch ? effectiveTargetMatch[1] : '',
-            targetState: effectiveTargetMatch ? getAttribute(effectiveTargetMatch[1], 'state') : undefined,
+            targetStateRaw: rawTargetState,
+            targetState: rawTargetState || (nabTarget ? nabTarget.state : undefined),
+            nabMarker: nabTarget ? nabTarget.marker : '',
+            nabMarkerKind: nabTarget ? nabTarget.kind : '',
             translate: getAttribute(unitAttrs, 'translate'),
             maxWidth: Number.isFinite(maxWidth) ? maxWidth : undefined,
             notes,
             noteDetails,
-            raw: match[0]
+            startOffset: unitStartOffset,
+            endOffset: unitEndOffset,
+            sourceStartOffset,
+            sourceEndOffset,
+            targetStartOffset,
+            targetEndOffset
         });
     }
 
@@ -114,9 +170,18 @@ function parseXliff(text) {
 }
 
 
-function parseCommentTranslations(text) {
+function getUnitRaw(text, unit) {
+    const sourceText = String(text || '');
+    const start = Number(unit && unit.startOffset);
+    const end = Number(unit && unit.endOffset);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > sourceText.length) return '';
+    return sourceText.slice(start, end);
+}
+
+
+function parseCommentTranslations(text, options = {}) {
     const result = new Map();
-    const value = String(text || '').trim();
+    const value = options.preserveWhitespace ? String(text || '') : String(text || '').trim();
     if (!value) return result;
 
     // Matches both BCP-47 keys (de-DE, en-US, pt-BR, ...) and classic
@@ -124,26 +189,26 @@ function parseCommentTranslations(text) {
     // A semicolon only ends the value when it is followed by another language assignment.
     const languageKey = String.raw`(?:[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})+|[A-Za-z]{3})`;
     const re = new RegExp(
-        String.raw`(?:^|;\s*)(${languageKey})\s*=\s*([\s\S]*?)(?=;\s*${languageKey}\s*=|$)`,
+        String.raw`(?:^\s*|;\s*)(${languageKey})\s*=${options.preserveWhitespace ? '' : String.raw`\s*`}([\s\S]*?)(?=;\s*${languageKey}\s*=|$)`,
         'gi'
     );
 
     let match;
     while ((match = re.exec(value)) !== null) {
         const key = match[1].trim();
-        const translation = match[2].trim();
+        const translation = options.preserveWhitespace ? match[2] : match[2].trim();
         if (translation) result.set(key, translation);
     }
     return result;
 }
 
-function getDeveloperCommentTranslation(unit, targetLanguage) {
+function getDeveloperCommentTranslation(unit, targetLanguage, options = {}) {
     const translations = new Set();
     const details = unit && Array.isArray(unit.noteDetails) ? unit.noteDetails : [];
 
     for (const note of details) {
         if (String(note.from || '').trim().toLowerCase() !== 'developer') continue;
-        const parsed = parseCommentTranslations(note.text);
+        const parsed = parseCommentTranslations(options.preserveWhitespace && note.rawText !== undefined ? note.rawText : note.text, options);
         for (const [key, translation] of parsed) {
             if (languageKeyMatches(key, targetLanguage)) translations.add(translation);
         }
@@ -190,12 +255,22 @@ const MISSING_TARGET_STATES = new Set(['new', 'needs-translation']);
 
 function isReviewTranslation(unit) {
     if (!unit || !unit.target) return false;
-    return REVIEW_TARGET_STATES.has(String(unit.targetState || '').toLowerCase());
+    if (unit.nabMarkerKind === 'review' || unit.nabMarkerKind === 'suggestion') return true;
+    const state = String(unit.targetState || '').trim().toLowerCase();
+    // A persisted target without an explicit state is usable translation text,
+    // but it has never been explicitly confirmed. Treat it as a review item
+    // rather than as translated or missing. The visual editor's ✓ action can
+    // promote it to state=translated.
+    if (!state) return true;
+    return REVIEW_TARGET_STATES.has(state);
 }
 
 function isMissingTranslation(unit, treatNeedsTranslationAsMissing = true) {
     if (unit && String(unit.translate || '').trim().toLowerCase() === 'no') {
         return false;
+    }
+    if (unit && unit.nabMarkerKind === 'not-translated') {
+        return true;
     }
     if (unit.target === undefined || unit.target.length === 0) {
         return true;
@@ -272,14 +347,23 @@ function updateMissingTranslations(text, translationBySource, options = {}) {
         const translation = typeof entry === 'string' ? entry : (entry && entry.text);
         const review = Boolean(entry && typeof entry === 'object' && entry.review);
         const note = entry && typeof entry === 'object' ? entry.note : undefined;
+        const provenance = entry && typeof entry === 'object' ? entry.provenance : undefined;
+        const extraNotes = entry && typeof entry === 'object' && Array.isArray(entry.notes) ? entry.notes : [];
 
         if (typeof translation !== 'string' || translation.length === 0) {
             return unitRaw;
         }
         updatedCount++;
         const updated = setTarget(unitRaw, translation, eol, setTranslatedState && !review);
-        const withState = review ? setTargetState(updated, 'needs-review-translation') : updated;
-        return note ? appendSyncNote(withState, note, eol) : withState;
+        let withState = review ? setTargetState(updated, 'needs-review-translation') : updated;
+        if (note) withState = appendSyncNote(withState, note, eol);
+        for (const extraNote of extraNotes) {
+            if (typeof extraNote === 'string' && extraNote.trim()) withState = appendSyncNote(withState, extraNote.trim(), eol);
+        }
+        const provenanceNote = serializeProvenanceNote(provenance);
+        if (provenanceNote) withState = appendSyncNote(withState, provenanceNote, eol);
+        if (parsed.nabMarker) withState = removeNabNotes(withState);
+        return withState;
     });
 
     return { text: result, updatedCount };
@@ -331,6 +415,111 @@ function setTarget(unitRaw, translation, eol, setTranslatedState) {
 
 const SYNC_NOTE_FROM = NOTE_FROM;
 const SOURCE_CHANGE_NOTE_PREFIX = 'Source changed from ';
+const STAGED_TRANSLATION_NOTE_PREFIX = 'Staged translation:';
+const STAGED_TRANSLATION_VERSION = 1;
+
+function sanitizeStagedTranslation(value) {
+    if (!value || typeof value !== 'object') return undefined;
+    const kind = String(value.kind || '').trim().toLowerCase();
+    if (!['draft', 'proposal'].includes(kind)) return undefined;
+    if (typeof value.text !== 'string') return undefined;
+    const result = {
+        v: STAGED_TRANSLATION_VERSION,
+        kind,
+        text: value.text,
+        at: Number.isFinite(Date.parse(String(value.at || ''))) ? String(value.at) : new Date().toISOString()
+    };
+    if (value.source !== undefined) result.source = String(value.source);
+    if (value.id !== undefined) result.id = String(value.id);
+    if (value.origin) result.origin = String(value.origin);
+    const provenance = sanitizeProvenance(value.provenance);
+    if (provenance) result.provenance = provenance;
+    return result;
+}
+
+function serializeStagedTranslationNote(value) {
+    const staged = sanitizeStagedTranslation(value);
+    if (!staged) return '';
+    return `${STAGED_TRANSLATION_NOTE_PREFIX} ${JSON.stringify(staged)}`;
+}
+
+function parseStagedTranslationNote(text) {
+    const value = String(text || '').trim();
+    if (!value.startsWith(STAGED_TRANSLATION_NOTE_PREFIX)) return undefined;
+    const json = value.slice(STAGED_TRANSLATION_NOTE_PREFIX.length).trim();
+    if (!json) return undefined;
+    try {
+        return sanitizeStagedTranslation(JSON.parse(json));
+    } catch (_) {
+        return undefined;
+    }
+}
+
+function getStagedTranslation(unit) {
+    let result;
+    for (const note of (unit && unit.noteDetails) || []) {
+        if (!isStudioNoteFrom(note.from)) continue;
+        const parsed = parseStagedTranslationNote(note.text);
+        if (parsed) result = parsed;
+    }
+    if (!result) return undefined;
+    if (result.source !== undefined && unit && result.source !== unit.source) return undefined;
+    if (result.id !== undefined && unit && unit.id && result.id !== unit.id) return undefined;
+    return result;
+}
+
+function isStagedTranslationNoteDetail(note) {
+    return Boolean(note && isStudioNoteFrom(note.from) && parseStagedTranslationNote(note.text));
+}
+
+function setStagedTranslations(text, items) {
+    const requested = new Map();
+    for (const item of items || []) {
+        const ordinal = Number(item && item.ordinal);
+        if (!Number.isInteger(ordinal) || ordinal < 0) continue;
+        requested.set(ordinal, item ? item.staged : undefined);
+    }
+    if (!requested.size) return { text: String(text || ''), updatedCount: 0 };
+
+    const eol = String(text || '').includes('\r\n') ? '\r\n' : '\n';
+    let currentOrdinal = 0;
+    let updatedCount = 0;
+    const result = String(text || '').replace(/<trans-unit\b([^>]*)>([\s\S]*?)<\/trans-unit>/gi, unitRaw => {
+        const parsed = parseSingleUnit(unitRaw);
+        if (!parsed) return unitRaw;
+        const ordinal = currentOrdinal++;
+        if (!requested.has(ordinal)) return unitRaw;
+
+        let updated = removeMatchingStudioNotes(unitRaw, noteText => Boolean(parseStagedTranslationNote(noteText)));
+        const stagedValue = requested.get(ordinal);
+        if (stagedValue !== undefined && stagedValue !== null) {
+            const staged = sanitizeStagedTranslation({
+                ...stagedValue,
+                source: parsed.source,
+                id: parsed.id
+            });
+            if (staged) {
+                // Studio staging metadata is attached to the trans-unit as a normal XLIFF note.
+                // Ensure a target node exists so appendSyncNote has a stable insertion point,
+                // while leaving its translation/state semantics untouched.
+                if (parsed.target === undefined) updated = setTarget(updated, '', eol, false);
+                const noteText = serializeStagedTranslationNote(staged);
+                updated = appendSyncNote(updated, noteText, eol, 'general');
+            }
+        }
+        if (updated !== unitRaw) updatedCount++;
+        return updated;
+    });
+    return { text: result, updatedCount };
+}
+
+function setStagedTranslation(text, ordinal, staged) {
+    return setStagedTranslations(text, [{ ordinal, staged }]);
+}
+
+function clearStagedTranslation(text, ordinal) {
+    return setStagedTranslation(text, ordinal, undefined);
+}
 
 // Compares a translation XLIFF against its generator (.g.xlf) by trans-unit id.
 // Source changes are detected even when the target is currently empty so that
@@ -373,6 +562,10 @@ function flagSourceChangedUnits(text, changedIds) {
         const change = changedIds instanceof Map ? changedIds.get(id) : undefined;
         let updated = unitRaw;
         synchronizedCount++;
+        // A staged translation belongs to the exact source text it was created for.
+        // When the generator changes that source, discard the stale staged metadata
+        // rather than restoring a paid AI suggestion against a different source.
+        updated = removeMatchingStudioNotes(updated, noteText => Boolean(parseStagedTranslationNote(noteText)));
         if (change && typeof change.newSourceRaw === 'string') {
             updated = setSourceRaw(updated, change.newSourceRaw);
         } else if (change && typeof change.newSource === 'string') {
@@ -390,6 +583,10 @@ function flagSourceChangedUnits(text, changedIds) {
                 return updated;
             }
             flaggedCount++;
+            if (parsed.nabMarker) {
+                updated = setTarget(updated, parsed.target || '', eol, false);
+                updated = removeNabNotes(updated);
+            }
             updated = setTargetState(updated, 'needs-l10n');
             const oldSource = change && typeof change.oldSource === 'string' ? change.oldSource : parsed.source;
             const newSource = change && typeof change.newSource === 'string' ? change.newSource : parsed.source;
@@ -442,45 +639,217 @@ function setTargetState(unitRaw, state) {
  * Editing translation text implies a human-confirmed state unless a state is
  * supplied explicitly. Clearing the text returns the unit to needs-translation.
  */
-function updateTranslationUnit(text, ordinal, changes = {}) {
-    const eol = text.includes('\r\n') ? '\r\n' : '\n';
-    let currentOrdinal = 0;
-    let updatedCount = 0;
+function applyTranslationChangesToUnit(unitRaw, parsed, changes, eol) {
+    if (String(parsed.translate || '').trim().toLowerCase() === 'no') return unitRaw;
     const hasTranslation = Object.prototype.hasOwnProperty.call(changes, 'translation');
     const hasState = Object.prototype.hasOwnProperty.call(changes, 'state');
+    let updated = unitRaw;
 
-    const result = text.replace(/<trans-unit\b([^>]*)>([\s\S]*?)<\/trans-unit>/gi, unitRaw => {
+    // Any explicit Studio edit/status action migrates a NAB text-marker unit
+    // to ordinary XLIFF state semantics. The marker is metadata, not part of
+    // the translation, and the corresponding NAB explanation note is stale
+    // once the Studio has handled the unit.
+    if (parsed.nabMarker && !hasTranslation && hasState) {
+        updated = setTarget(updated, parsed.target || '', eol, false);
+    }
+    if (hasTranslation) {
+        const translation = String(changes.translation ?? '');
+        updated = setTarget(updated, translation, eol, false);
+        const state = hasState
+            ? changes.state
+            : (translation.length ? 'translated' : 'needs-translation');
+        updated = setTargetState(updated, state);
+    } else if (hasState) {
+        if (parsed.target === undefined) updated = setTarget(updated, '', eol, false);
+        updated = setTargetState(updated, changes.state);
+    }
+
+    if (parsed.nabMarker && (hasTranslation || hasState)) updated = removeNabNotes(updated);
+    if (changes.clearStaged) {
+        updated = removeMatchingStudioNotes(updated, noteText => Boolean(parseStagedTranslationNote(noteText)));
+    }
+
+    const note = typeof changes.note === 'string' ? changes.note.trim() : '';
+    if (note && !hasSpecificSyncNote(updated, note)) {
+        updated = appendSyncNote(updated, note, eol, changes.noteAnnotates || 'general');
+    }
+    if (Array.isArray(changes.notes)) {
+        for (const extraNote of changes.notes) {
+            if (typeof extraNote === 'string' && extraNote.trim()) {
+                updated = appendSyncNote(updated, extraNote.trim(), eol, 'general');
+            }
+        }
+    }
+    const provenanceNote = serializeProvenanceNote(changes.provenance);
+    if (provenanceNote) updated = appendSyncNote(updated, provenanceNote, eol, 'general');
+    return updated;
+}
+
+function updateTranslationUnitRaw(unitRaw, changes = {}) {
+    const sourceText = String(unitRaw || '');
+    const parsed = parseSingleUnit(sourceText);
+    if (!parsed) return { text: sourceText, updated: false };
+    const eol = sourceText.includes('\r\n') ? '\r\n' : '\n';
+    const updated = applyTranslationChangesToUnit(sourceText, parsed, changes, eol);
+    return { text: updated, updated: updated !== sourceText };
+}
+
+/**
+ * Applies multiple ordinal-based translation-unit changes in one XLIFF pass.
+ * This is the commit primitive used by Apply Drafts. It avoids reparsing and
+ * rebuilding a large XLIFF once per draft.
+ */
+function updateTranslationUnits(text, items) {
+    const requested = new Map();
+    for (const item of items || []) {
+        const ordinal = Number(item && item.ordinal);
+        if (!Number.isInteger(ordinal) || ordinal < 0) continue;
+        requested.set(ordinal, item && item.changes ? item.changes : {});
+    }
+    if (!requested.size) return { text: String(text || ''), updatedCount: 0, updatedOrdinals: [] };
+
+    const sourceText = String(text || '');
+    const eol = sourceText.includes('\r\n') ? '\r\n' : '\n';
+    let currentOrdinal = 0;
+    let updatedCount = 0;
+    const updatedOrdinals = [];
+    const result = sourceText.replace(/<trans-unit\b([^>]*)>([\s\S]*?)<\/trans-unit>/gi, unitRaw => {
+        const parsed = parseSingleUnit(unitRaw);
+        if (!parsed) return unitRaw;
+        const ordinal = currentOrdinal++;
+        const changes = requested.get(ordinal);
+        if (!changes) return unitRaw;
+        const updated = applyTranslationChangesToUnit(unitRaw, parsed, changes, eol);
+        if (updated !== unitRaw) {
+            updatedCount++;
+            updatedOrdinals.push(ordinal);
+        }
+        return updated;
+    });
+    return { text: result, updatedCount, updatedOrdinals };
+}
+
+function updateTranslationUnit(text, ordinal, changes = {}) {
+    const result = updateTranslationUnits(text, [{ ordinal, changes }]);
+    return { text: result.text, updatedCount: result.updatedCount };
+}
+
+function setNoStateTargetsTranslated(text, options = {}) {
+    const eol = text.includes('\r\n') ? '\r\n' : '\n';
+    const includeProvenance = options.provenance !== false;
+    const provenance = includeProvenance ? options.provenance : undefined;
+    let ordinal = 0;
+    let updatedCount = 0;
+    const accepted = [];
+    const skipped = [];
+
+    const result = String(text || '').replace(/<trans-unit\b([^>]*)>([\s\S]*?)<\/trans-unit>/gi, unitRaw => {
+        const parsed = parseSingleUnit(unitRaw);
+        if (!parsed) return unitRaw;
+        const currentOrdinal = ordinal++;
+        if (String(parsed.translate || '').trim().toLowerCase() === 'no') return unitRaw;
+        if (String(parsed.targetState || '').trim()) return unitRaw;
+        const translation = String(parsed.target == null ? '' : parsed.target);
+        if (!translation.trim()) return unitRaw;
+        if (!placeholdersMatch(parsed.source, translation)) {
+            skipped.push({ ordinal: currentOrdinal, source: parsed.source, translation, reason: 'placeholder mismatch' });
+            return unitRaw;
+        }
+
+        let updated = setTargetState(unitRaw, 'translated');
+        const provenanceNote = serializeProvenanceNote(provenance);
+        if (provenanceNote) updated = appendSyncNote(updated, provenanceNote, eol, 'general');
+        if (updated === unitRaw) return unitRaw;
+
+        updatedCount++;
+        accepted.push({ ordinal: currentOrdinal, source: parsed.source, translation });
+        return updated;
+    });
+
+    return { text: result, updatedCount, accepted, skipped };
+}
+
+
+
+function replaceTranslationUnitRaw(text, ordinal, rawUnit) {
+    const requestedOrdinal = Number(ordinal);
+    if (!Number.isInteger(requestedOrdinal) || requestedOrdinal < 0 || typeof rawUnit !== 'string' || !rawUnit) {
+        return { text: String(text || ''), updatedCount: 0 };
+    }
+    let currentOrdinal = 0;
+    let updatedCount = 0;
+    const result = String(text || '').replace(/<trans-unit\b([^>]*)>([\s\S]*?)<\/trans-unit>/gi, unitRaw => {
+        const parsed = parseSingleUnit(unitRaw);
+        if (!parsed) return unitRaw;
+        const current = currentOrdinal++;
+        if (current !== requestedOrdinal) return unitRaw;
+        if (unitRaw === rawUnit) return unitRaw;
+        updatedCount = 1;
+        return rawUnit;
+    });
+    return { text: result, updatedCount };
+}
+
+function setQualityIssueIgnored(text, ordinal, issue, ignored = true) {
+    const eol = String(text || '').includes('\r\n') ? '\r\n' : '\n';
+    let currentOrdinal = 0;
+    let updatedCount = 0;
+    const desired = {
+        code: String(issue && issue.code || ''),
+        source: String(issue && issue.source || ''),
+        target: String(issue && issue.target || '')
+    };
+    if (!desired.code) return { text: String(text || ''), updatedCount: 0 };
+
+    const result = String(text || '').replace(/<trans-unit\b([^>]*)>([\s\S]*?)<\/trans-unit>/gi, unitRaw => {
         const parsed = parseSingleUnit(unitRaw);
         if (!parsed) return unitRaw;
         const current = currentOrdinal++;
         if (current !== ordinal) return unitRaw;
-        if (String(parsed.translate || '').trim().toLowerCase() === 'no') return unitRaw;
 
         let updated = unitRaw;
-        if (hasTranslation) {
-            const translation = String(changes.translation ?? '');
-            updated = setTarget(updated, translation, eol, false);
-            const state = hasState
-                ? changes.state
-                : (translation.length ? 'translated' : 'needs-translation');
-            updated = setTargetState(updated, state);
-        } else if (hasState) {
-            if (parsed.target === undefined) {
-                updated = setTarget(updated, '', eol, false);
-            }
-            updated = setTargetState(updated, changes.state);
+        if (ignored) {
+            const noteText = serializeQualityIgnoreNote(desired);
+            const exists = (parsed.noteDetails || []).some(note => {
+                if (!isStudioNoteFrom(note.from)) return false;
+                const existing = parseQualityIgnoreText(note.text);
+                return qualityIgnoreRecordMatches(existing, desired);
+            });
+            if (!exists) updated = appendSyncNote(updated, noteText, eol, 'general');
+        } else {
+            updated = removeMatchingStudioNotes(updated, noteText => {
+                const existing = parseQualityIgnoreText(noteText);
+                return qualityIgnoreRecordMatches(existing, desired);
+            });
         }
-
-        const note = typeof changes.note === 'string' ? changes.note.trim() : '';
-        if (note && !hasSpecificSyncNote(updated, note)) {
-            updated = appendSyncNote(updated, note, eol, changes.noteAnnotates || 'general');
-        }
-
         if (updated !== unitRaw) updatedCount++;
         return updated;
     });
-
     return { text: result, updatedCount };
+}
+
+function qualityIgnoreRecordMatches(existing, desired) {
+    if (!existing || !desired || String(existing.code) !== String(desired.code)) return false;
+    if (desired.source && String(existing.source || '') !== String(desired.source)) return false;
+    if (desired.target && String(existing.target || '') !== String(desired.target)) return false;
+    return true;
+}
+
+function removeMatchingStudioNotes(unitRaw, predicate) {
+    const noteLineRe = /(\r?\n)?([ \t]*)<note\b([^>]*)>([\s\S]*?)<\/note>/gi;
+    return String(unitRaw || '').replace(noteLineRe, (whole, leadingEol, indent, attrs, body) => {
+        if (!isStudioNoteFrom(getAttribute(attrs, 'from'))) return whole;
+        const text = decodeXmlEntities(stripXmlTags(body)).trim();
+        if (!predicate(text)) return whole;
+        return '';
+    });
+}
+
+function removeNabNotes(unitRaw) {
+    const noteLineRe = /(\r?\n)?([ \t]*)<note\b([^>]*)>([\s\S]*?)<\/note>/gi;
+    return String(unitRaw || '').replace(noteLineRe, (whole, leadingEol, indent, attrs) => {
+        return isNabNoteFrom(getAttribute(attrs, 'from')) ? '' : whole;
+    });
 }
 
 function hasSpecificSyncNote(unitRaw, notePrefix) {
@@ -508,14 +877,14 @@ function appendSyncNote(unitRaw, noteText, eol, annotates = 'general') {
 }
 
 function extractPlaceholders(text) {
-    const matches = String(text).match(/%\d+|#\d+|\\[nrt]|\{\{?[^{}]+\}?\}/g) || [];
+    const matches = String(text).match(/%\d+|#\d+|\{\{?[^{}]+\}?\}/g) || [];
     return matches.sort();
 }
 
 function placeholdersMatch(source, translation) {
-    const a = extractPlaceholders(source);
-    const b = extractPlaceholders(translation);
-    return a.length === b.length && a.every((value, index) => value === b[index]);
+    const expected = new Set(String(source || '').match(/%\d+/g) || []);
+    const actual = new Set(String(translation || '').match(/%\d+/g) || []);
+    return [...expected].every(value => actual.has(value));
 }
 
 function escapeRegExp(value) {
@@ -524,6 +893,9 @@ function escapeRegExp(value) {
 
 module.exports = {
     parseXliff,
+    getUnitRaw,
+    parseNabTargetMarker,
+    removeNabNotes,
     isMissingTranslation,
     isReviewTranslation,
     translatedPairs,
@@ -539,5 +911,18 @@ module.exports = {
     getDeveloperCommentTranslationForUnits,
     detectSourceChanges,
     flagSourceChangedUnits,
-    updateTranslationUnit
+    updateTranslationUnit,
+    updateTranslationUnitRaw,
+    updateTranslationUnits,
+    setNoStateTargetsTranslated,
+    replaceTranslationUnitRaw,
+    setQualityIssueIgnored,
+    STAGED_TRANSLATION_NOTE_PREFIX,
+    serializeStagedTranslationNote,
+    parseStagedTranslationNote,
+    getStagedTranslation,
+    isStagedTranslationNoteDetail,
+    setStagedTranslation,
+    setStagedTranslations,
+    clearStagedTranslation
 };

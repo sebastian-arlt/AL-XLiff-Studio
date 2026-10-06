@@ -3,3 +3,11 @@
 .gitignore
 test/**
 *.vsix
+
+artifacts/**
+tools/**
+docs/**
+*.log
+pnpm-lock.yaml
+CHANGE_REPORT.md
+*.zip
