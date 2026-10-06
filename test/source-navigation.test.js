@@ -13,6 +13,77 @@ const {
     labelNameBeforeLiteral
 } = require('../src/sourceNavigation');
 
+test('generator origin navigates changed Caption, ToolTip and OptionCaption without source equality', () => {
+    const al = `table 50005 "SPFB ABS Failed Sync List"
+{
+    Caption = 'New object caption';
+    fields
+    {
+        field(2; "Item No."; Code[20])
+        {
+            Caption = 'New Blob Name';
+            ToolTip = 'New tooltip';
+            OptionCaption = 'New,Options';
+        }
+    }
+}`;
+    for (const property of ['Caption', 'ToolTip', 'OptionCaption']) {
+        const candidates = findExactAlOriginCandidates(al, { source: 'Obsolete text', noteDetails: [{ from: 'Xliff Generator', text: `Table SPFB ABS Failed Sync List - Field Item No. - Property ${property}` }] });
+        assert.equal(candidates.length, 1);
+        assert.match(candidates[0].lineText, new RegExp(property + ' ='));
+    }
+    assert.equal(findExactAlOriginCandidates(al, { source: 'Old', noteDetails: [{ from: 'Xliff Generator', text: 'Table SPFB ABS Failed Sync List - Property Caption' }] })[0].line, 2);
+});
+
+test('generator default Caption navigates directly to its object or field declaration', () => {
+    const al = `table 50005 "SPFB ABS Failed Sync List"
+{
+    fields
+    {
+        field(1; No; Integer)
+        {
+            DataClassification = CustomerContent;
+        }
+    }
+}`;
+    for (const [note, line] of [['Table SPFB ABS Failed Sync List - Property Caption', 0], ['Table SPFB ABS Failed Sync List - Field No - Property Caption', 4]]) {
+        const candidates = findExactAlOriginCandidates(al, { source: 'Old', noteDetails: [{ from: 'Xliff Generator', text: note }] });
+        assert.equal(candidates.length, 1);
+        assert.equal(candidates[0].line, line);
+    }
+});
+
+test('generator label origin ignores obsolete source and commented-out duplicate definitions', () => {
+    const al = `codeunit 50000 Demo
+{
+    /* var WarningLbl: Label 'Obsolete'; */
+    var
+        WarningLbl: Label 'Current // text';
+}`;
+    const candidates = findExactAlOriginCandidates(al, { source: 'Obsolete', noteDetails: [{ from: 'Xliff Generator', text: 'Codeunit Demo - NamedType WarningLbl' }] });
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0].line, 4);
+});
+
+test('permission object references are never resolved as default caption declarations', () => {
+    assert.deepEqual(findExactAlOriginCandidates('permissionset 50000 Demo\n{\n    Permissions =\n        table "SPFB ABS Failed Sync List" = X;\n}', { source: 'SPFB ABS Failed Sync List', noteDetails: [{ from: 'Xliff Generator', text: 'Table SPFB ABS Failed Sync List - Property Caption' }] }), []);
+});
+
+test('EnumValue generator segments resolve AL value declarations', () => {
+    const matches = findExactAlOriginCandidates('enum 50000 Demo\n{\n    value(1; Released)\n    {\n        Caption = \'Current\';\n    }\n}', { source: 'Old', noteDetails: [{ from: 'Xliff Generator', text: 'Enum Demo - EnumValue Released - Property Caption' }] });
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0].line, 4);
+});
+
+test('origin resolves multiline labels and changed nonliteral OptionMembers', () => {
+    const label = findExactAlOriginCandidates('codeunit 50000 Demo\n{\n    var\n        WarningLbl: Label\n            \'Current\';\n}', { source: 'Old', noteDetails: [{ from: 'Xliff Generator', text: 'Codeunit Demo - NamedType WarningLbl' }] });
+    assert.equal(label.length, 1);
+    assert.equal(label[0].line, 4);
+    const members = findExactAlOriginCandidates('table 50000 Demo\n{\n    fields\n    {\n        field(1; Status; Option)\n        {\n            OptionMembers = New,Options;\n        }\n    }\n}', { source: '[Old,List]', noteDetails: [{ from: 'Xliff Generator', text: 'Table Demo - Field Status - Property OptionMembers' }] });
+    assert.equal(members.length, 1);
+    assert.equal(members[0].line, 6);
+});
+
 test('AL source navigation resolves a generated page caption to the matching AL definition', () => {
     const al = `page 50100 "Customer Demo"
 {

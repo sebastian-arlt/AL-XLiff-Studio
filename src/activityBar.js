@@ -332,6 +332,7 @@ class ActivityBarProvider {
         if (element.id === 'section-languages') return this.languageNodes();
         if (element.id === 'section-tools') return this.toolNodes();
         if (element.id === 'section-project') return this.projectNodes();
+        if (element.kind === 'translation-language') return this.languageActionNodes(element);
         if (element.kind === 'project-group') return this.projectResourceNodes(element.project);
         return [];
     }
@@ -386,16 +387,36 @@ class ActivityBarProvider {
                 '',
                 'Click to open this XLIFF in AL Xliff Studio.'
             ].join('\n');
-            return node(
+            const language = node(
                 `language-${index}`,
                 locale,
                 description,
                 ready ? 'check' : 'warning',
-                vscode.TreeItemCollapsibleState.None,
+                vscode.TreeItemCollapsibleState.Collapsed,
                 tooltip,
                 command(`${COMMAND_PREFIX}.openXliffEditor`, 'Open XLIFF', vscode.Uri.parse(entry.uri))
             );
+            language.kind = 'translation-language'; language.entry = entry;
+            return language;
         });
+    }
+
+    languageActionNodes(element) {
+        const entry = element.entry, m = entry.metrics || {}, uri = vscode.Uri.parse(entry.uri);
+        const wizard = (workflow, label, description, icon, enabled, tooltip) => {
+            const item = node(element.id + '-' + workflow, label, description, icon, vscode.TreeItemCollapsibleState.None, tooltip);
+            if (enabled) item.command = { command: COMMAND_PREFIX + '.openGuidedTranslation', title: label, arguments: [uri, workflow] };
+            return item;
+        };
+        return [
+            wizard('', 'Guided Translation', 'Wizard', 'wand', true, 'Common guided workflow: previous/next navigation, protected drafts, AI and Developer proposals, invisible characters, Save and final summary with follow-up actions.'),
+            wizard('new-language', 'New language', 'Sync and local import', 'globe', m.missing > 0, 'Check selected-file Sync, prepare Developer/.lng/glossary drafts, then translate.'),
+            wizard('translate-missing', 'Translate missing', String(m.missing || 0), 'edit', m.missing > 0, 'Translate missing entries one at a time.'),
+            wizard('review', 'Review translations', String(m.review || 0), 'checklist', m.review > 0, 'Review translations, drafts and proposals; enabled only when review entries exist.'),
+            wizard('quality-fix', 'Fix quality issues', String(m.qualityIssues || 0), 'warning', m.qualityIssues > 0, 'Fix quality issues; matching Developer comments appear as proposals.'),
+            wizard('sync-project', 'Sync this XLIFF', entry.syncStatus || '', 'sync', entry.syncStatus === 'out-of-sync', 'Synchronize only this language; dashboard updates its row.'),
+            node(element.id + '-expert', 'Expert XLIFF Editor', '', 'file-code', vscode.TreeItemCollapsibleState.None, 'Open the full editor with filters and pagination.', command(COMMAND_PREFIX + '.openXliffEditor', 'Open XLIFF', uri))
+        ];
     }
 
     toolNodes() {

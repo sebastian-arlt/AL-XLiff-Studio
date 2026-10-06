@@ -1,8 +1,8 @@
 {
   "name": "al-xliff-studio",
   "displayName": "AL Xliff Studio",
-  "description": "Visual XLIFF editing, AL source translation hover/navigation, project-wide translation dashboard, terminology glossary, quality assurance with suppressions, synchronization, translation memory, review workflows, and VS Code AI translation support for Microsoft Dynamics 365 Business Central AL apps.",
-  "version": "1.11.72",
+  "description": "Übersetze Business-Central-AL-Apps in VS Code: Sprachübersicht, Guided Translation, visueller XLIFF Editor, Glossar, Qualitätsprüfung und AI-Vorschläge.",
+  "version": "1.11.83",
   "publisher": "sebastian-tools",
   "license": "MIT",
   "engines": {
@@ -52,63 +52,69 @@
     "onCommand:alXliffStudio.validateCurrent",
     "onStartupFinished",
     "onLanguage:al",
-    "onCommand:alXliffStudio.openTranslationUnit"
+    "onCommand:alXliffStudio.openTranslationUnit",
+    "onCommand:alXliffStudio.openGuidedTranslation"
   ],
   "contributes": {
     "commands": [
       {
         "command": "alXliffStudio.openDashboard",
-        "title": "AL Xliff Studio: Open Translation Dashboard",
+        "title": "AL Xliff Studio: Translation Dashboard öffnen",
         "icon": "$(dashboard)"
       },
       {
         "command": "alXliffStudio.openAiUsage",
-        "title": "AL Xliff Studio: Open AI Usage",
+        "title": "AL Xliff Studio: AI-Nutzung anzeigen",
         "icon": "$(graph)"
       },
       {
         "command": "alXliffStudio.openAiDebugLog",
-        "title": "AL Xliff Studio: Open AI Debug Log",
+        "title": "AL Xliff Studio: AI-Protokoll öffnen",
         "icon": "$(output)"
       },
       {
         "command": "alXliffStudio.openPerformanceDebugLog",
-        "title": "AL Xliff Studio: Open Performance Debug Log",
+        "title": "AL Xliff Studio: Leistungsprotokoll öffnen",
         "icon": "$(pulse)"
       },
       {
         "command": "alXliffStudio.buildMaps",
-        "title": "AL Xliff Studio: Build/Update Language Maps"
+        "title": "AL Xliff Studio: Sprachdateien aktualisieren"
       },
       {
         "command": "alXliffStudio.fillMissing",
-        "title": "AL Xliff Studio: Fill Missing Translations"
+        "title": "AL Xliff Studio: Fehlende Übersetzungen ergänzen"
       },
       {
         "command": "alXliffStudio.fillMissingCurrent",
-        "title": "AL Xliff Studio: Fill Missing Translations in Current File"
+        "title": "AL Xliff Studio: Fehlende Übersetzungen dieser Datei ergänzen"
       },
       {
         "command": "alXliffStudio.selectAiModel",
-        "title": "AL Xliff Studio: Select Translation AI Model"
+        "title": "AL Xliff Studio: AI-Modell auswählen"
       },
       {
         "command": "alXliffStudio.mergeTranslations",
-        "title": "AL Xliff Studio: Merge Translations Between Files"
+        "title": "AL Xliff Studio: Übersetzungen aus anderen Dateien übernehmen"
       },
       {
         "command": "alXliffStudio.openXliffEditor",
-        "title": "AL Xliff Studio: Open Visual XLIFF Editor"
+        "title": "AL Xliff Studio: XLIFF Editor öffnen"
       },
       {
         "command": "alXliffStudio.openGlossary",
-        "title": "AL Xliff Studio: Open Terminology Glossary",
+        "title": "AL Xliff Studio: Glossar öffnen",
         "icon": "$(book)"
       },
       {
         "command": "alXliffStudio.validateCurrent",
-        "title": "AL Xliff Studio: Run XLIFF Quality Check",
+        "title": "AL Xliff Studio: Übersetzungsqualität prüfen",
         "icon": "$(checklist)"
+      },
+      {
+        "command": "alXliffStudio.openGuidedTranslation",
+        "title": "AL Xliff Studio: Guided Translation öffnen",
+        "icon": "$(wand)"
       }
     ],
     "menus": {
@@ -144,6 +150,12 @@
           "command": "alXliffStudio.validateCurrent",
           "when": "resourceExtname == .xlf",
           "group": "navigation@48"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "alXliffStudio.openGuidedTranslation",
+          "when": "false"
         }
       ]
     },
@@ -198,7 +210,7 @@
         "alXliffStudio.hover.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show translations for AL Caption, ToolTip, Label, and other translatable string literals on hover. Each language links directly to the matching translation unit in AL Xliff Studio."
+          "description": "Zeigt vorhandene Übersetzungen direkt beim Bewegen der Maus über AL-Texte. Ein Klick öffnet den passenden XLIFF-Eintrag."
         },
         "alXliffStudio.treatNeedsTranslationAsMissing": {
           "type": "boolean",
@@ -208,12 +220,12 @@
         "alXliffStudio.setTranslatedState": {
           "type": "boolean",
           "default": true,
-          "description": "Set filled target elements to state=translated."
+          "description": "Kennzeichnet übernommene Übersetzungen als übersetzt."
         },
         "alXliffStudio.ai.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Use a VS Code language model only after no Developer-comment translation, no companion .lng exact match, and no exact project glossary match was found."
+          "description": "Erlaubt AI-Vorschläge, wenn lokale Übersetzungen nicht ausreichen. Vorschläge werden erst nach deiner Bestätigung übernommen."
         },
         "alXliffStudio.debug.enabled": {
           "type": "boolean",
@@ -286,7 +298,7 @@
         "alXliffStudio.ai.usage.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Collect token usage for AL Xliff Studio AI translation requests and persist project statistics in .alxliffstudio/ai-usage.json."
+          "description": "Erfasst die AI-Nutzung deiner Übersetzungen und speichert die Statistik im Projekt."
         },
         "alXliffStudio.ai.context.enabled": {
           "type": "boolean",
@@ -363,12 +375,12 @@
         "alXliffStudio.provenance.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Record and display translation provenance/history. When disabled, AL Xliff Studio does not append Provenance notes to XLIFF files; existing provenance notes are left untouched and hidden from the regular Notes column."
+          "description": "Zeigt und speichert, woher eine Übersetzung stammt, zum Beispiel Entwicklerhinweis, Sprachdatei oder AI."
         },
         "alXliffStudio.glossary.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Use the project terminology glossary for exact translation lookup, AI terminology context, and terminology validation."
+          "description": "Nutzt das Projektglossar für passende Übersetzungen und einheitliche Fachbegriffe."
         },
         "alXliffStudio.glossary.path": {
           "type": "string",
@@ -476,7 +488,7 @@
   },
   "scripts": {
     "test": "node tools/run-tests.cjs",
-    "package": "vsce package --out al-xliff-studio-1.11.72.vsix",
+    "package": "vsce package --out al-xliff-studio-1.11.83.vsix --no-rewrite-relative-links",
     "test:stress": "node tools/large-xlf-stress.cjs",
     "check": "node tools/check-syntax.cjs"
   },

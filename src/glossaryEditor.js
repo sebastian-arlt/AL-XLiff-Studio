@@ -1,6 +1,7 @@
 'use strict';
 
 const vscode = require('vscode');
+const { setTabIcon } = require('./tabIcons');
 const path = require('path');
 const { GLOSSARY_EDITOR_VIEW_TYPE, BRAND_NAME, CONFIG_SECTION } = require('./identity');
 const { DEFAULT_GLOSSARY_FILENAME, LEGACY_GLOSSARY_FILENAME, parseGlossary, serializeGlossary, normalizeEntries } = require('./glossary');
@@ -22,6 +23,7 @@ class GlossaryEditorProvider {
     }
 
     async resolveCustomTextEditor(document, webviewPanel) {
+        setTabIcon(webviewPanel, this.context && this.context.extensionUri, vscode, 'glossary');
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
         let applyingFromWebview = false;

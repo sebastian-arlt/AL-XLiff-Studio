@@ -19,12 +19,12 @@ const GENERATOR_SEGMENT_TYPES = [
 ];
 const GENERATOR_SEGMENT_PATTERN = GENERATOR_SEGMENT_TYPES.join('|');
 const AL_OBJECT_DECLARATION_RE = /^\s*(tableextension|pageextension|reportextension|enumextension|permissionsetextension|table|page|report|codeunit|query|xmlport|enum|interface|profile|controladdin)\s+(?:\d+\s+)?(?:"([^"]+)"|([^\s{]+))/i;
-const AL_ELEMENT_DECLARATION_RE = /^\s*(field|action|group|repeater|cuegroup|fixed|grid|part|systempart|area|column|dataitem|enumvalue|modify)\s*\(([^)]*)\)/i;
+const AL_ELEMENT_DECLARATION_RE = /^\s*(field|action|group|repeater|cuegroup|fixed|grid|part|systempart|area|column|dataitem|enumvalue|value|modify)\s*\(([^)]*)\)/i;
 const AL_METHOD_DECLARATION_RE = /^\s*(?:(?:local|internal|protected)\s+)?procedure\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))\s*\(|^\s*trigger\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))\s*\(/i;
 
-function findAlSourceCandidates(text, unit) {
+function findAlSourceCandidates(text, unit, matchOriginOnly = false) {
     const source = String(unit && unit.source || '');
-    if (!source) return [];
+    if (!source && !matchOriginOnly) return [];
     const input = String(text || '');
     const lines = input.split(/\r?\n/);
     const candidates = [];
@@ -32,12 +32,12 @@ function findAlSourceCandidates(text, unit) {
     // Normal AL translatable properties and Labels are represented by single-quoted
     // string literals. Keep this exact path as the highest-confidence match.
     const encodedNeedle = `'${source.replace(/'/g, "''")}'`;
-    if (input.includes(encodedNeedle)) {
+    if (matchOriginOnly || input.includes(encodedNeedle)) {
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
             const line = lines[lineIndex];
             const literals = scanAlStringLiterals(line);
             for (const literal of literals) {
-                if (literal.value !== source) continue;
+                if (!matchOriginOnly && literal.value !== source) continue;
                 const property = propertyBeforeLiteral(line, literal.start);
                 if (!property) continue;
                 const labelName = /^label$/i.test(property) ? labelNameBeforeLiteral(line, literal.start) : '';
@@ -62,7 +62,7 @@ function findAlSourceCandidates(text, unit) {
     // EntityCaption, EntitySetCaption or RequestFilterHeading).
     const hintedProperty = propertyFromGeneratorNote(unit);
     if (hintedProperty) {
-        for (const candidate of findHintedPropertyLiteralCandidates(input, source, hintedProperty, lines)) {
+        for (const candidate of findHintedPropertyLiteralCandidates(input, matchOriginOnly ? undefined : source, hintedProperty, lines)) {
             candidates.push(candidate);
         }
     }
@@ -156,20 +156,73 @@ function withGeneratorOriginFromCompanion(unit, generatorParsed) {
 function findExactAlOriginCandidates(text, unit) {
     const origin = parseGeneratorOrigin(unit);
     if (!origin) return [];
-    const input = String(text || '');
+    const input = maskAlComments(String(text || ''));
     const lines = input.split(/\r?\n/);
     const objectRanges = findMatchingObjectRanges(lines, origin);
     if (!objectRanges.length) return [];
 
-    const all = findAlSourceCandidates(input, unit);
-    return deduplicateCandidates(all.filter(candidate => objectRanges.some(range =>
+    const all = findAlSourceCandidates(input, unit, true);
+    if (sameName(origin.property, 'OptionMembers')) {
+        for (const assignment of findAlListAssignments(input, origin.property)) {
+            const start = positionAtOffset(input, assignment.valueStart);
+            const end = positionAtOffset(input, assignment.valueEnd);
+            all.push({ line: start.line, endLine: end.line, startCharacter: start.character, endCharacter: end.character, property: origin.property, labelName: '', lineText: assignment.text.trim(), score: 100 });
+        }
+    }
+    if (origin.hierarchy.some(segment => segment.type === 'NamedType')) {
+        const labels = /(?:"((?:""|[^"])*)"|([A-Za-z_][A-Za-z0-9_]*))\s*:\s*Label\s*('(?:''|[^'])*')/gi;
+        let match;
+        while ((match = labels.exec(input))) {
+            const offset = match.index + match[0].lastIndexOf(match[3]);
+            const start = positionAtOffset(input, offset), end = positionAtOffset(input, offset + match[3].length);
+            all.push({ line: start.line, endLine: end.line, startCharacter: start.character, endCharacter: end.character, property: 'Label', labelName: (match[1] || match[2]).replace(/""/g, '"'), lineText: match[0].trim(), score: 100 });
+        }
+    }
+    const exact = deduplicateCandidates(all.filter(candidate => objectRanges.some(range =>
         candidate.line >= range.startLine && candidate.line <= range.endLine &&
         candidateMatchesOrigin(lines, candidate, origin, range)
-    ))).map(candidate => ({ ...candidate, originExact: true, origin }));
+    )));
+    // AL also emits default captions for declarations without an explicit Caption.
+    if (!exact.length && sameName(origin.property, 'Caption')) {
+        for (const range of objectRanges) {
+            const owners = origin.hierarchy.length ? origin.hierarchy.at(-1) : undefined;
+            for (let line = range.startLine; line <= range.endLine; line++) {
+                const declaration = owners ? lines[line].match(AL_ELEMENT_DECLARATION_RE) : line === range.startLine ? lines[line].match(AL_OBJECT_DECLARATION_RE) : undefined;
+                if (!declaration) continue;
+                if (owners && (!elementTypeMatchesOrigin(declaration[1], owners.type) || !sameName(elementNameFromArguments(declaration[1].toLowerCase() === 'value' ? 'enumvalue' : declaration[1].toLowerCase(), declaration[2]), owners.name))) continue;
+                const candidate = { line, endLine: line, startCharacter: lines[line].search(/\S/), endCharacter: lines[line].length, property: 'Caption', labelName: '', lineText: lines[line].trim(), score: 100 };
+                if (candidateMatchesOrigin(lines, candidate, origin, range)) exact.push(candidate);
+            }
+        }
+    }
+    return exact.map(candidate => ({ ...candidate, originExact: true, origin }));
+}
+
+// Preserve offsets/newlines while excluding commented-out declarations and properties.
+function maskAlComments(text) {
+    let mode = '', result = '';
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i], next = text[i + 1];
+        if (mode === 'line' || mode === 'block') {
+            if (mode === 'block' && ch === '*' && next === '/') { result += '  '; i++; mode = ''; }
+            else { result += /[\r\n]/.test(ch) ? ch : ' '; if (mode === 'line' && ch === '\n') mode = ''; }
+        } else if (mode === "'" || mode === '"') {
+            result += ch;
+            if (ch === mode) { if (next === mode) { result += next; i++; } else mode = ''; }
+        } else if (ch === '/' && (next === '/' || next === '*')) { mode = next === '/' ? 'line' : 'block'; result += '  '; i++; }
+        else { result += ch; if (ch === "'" || ch === '"') mode = ch; }
+    }
+    return result;
 }
 
 function candidateMatchesOrigin(lines, candidate, origin, objectRange) {
     if (origin.property && !sameName(candidate.property, origin.property)) return false;
+    // An object Property belongs to the object itself, never to a nested field/action.
+    if (!origin.hierarchy.length) {
+        for (let line = objectRange.startLine + 1; line <= candidate.line; line++) {
+            if (AL_ELEMENT_DECLARATION_RE.test(lines[line]) && candidate.line <= findDeclarationBlockEnd(lines, line)) return false;
+        }
+    }
     for (const segment of origin.hierarchy) {
         if (segment.type === 'NamedType') {
             if (!sameName(candidate.labelName, segment.name)) return false;
@@ -189,6 +242,8 @@ function findMatchingObjectRanges(lines, origin) {
     for (let line = 0; line < lines.length; line++) {
         const match = String(lines[line] || '').match(AL_OBJECT_DECLARATION_RE);
         if (!match) continue;
+        // Permission entries such as table "Name" = X are references, not declarations.
+        if (!/^(?:\s*\{|\s*(?:extends|implements|customizes)\b|\s*$)/i.test(lines[line].slice(match[0].length))) continue;
         const type = canonicalGeneratorType(match[1]);
         const name = cleanAlIdentifier(match[2] || match[3] || '');
         if (!sameName(type, origin.objectType) || !sameName(name, origin.objectName)) continue;
@@ -203,7 +258,7 @@ function candidateInsideNamedElement(lines, candidateLine, objectRange, segment)
     for (let line = objectRange.startLine + 1; line <= Math.min(candidateLine, objectRange.endLine); line++) {
         const match = String(lines[line] || '').match(AL_ELEMENT_DECLARATION_RE);
         if (!match) continue;
-        const alType = String(match[1] || '').toLowerCase();
+        const alType = String(match[1] || '').toLowerCase() === 'value' ? 'enumvalue' : String(match[1] || '').toLowerCase();
         const name = elementNameFromArguments(alType, match[2]);
         if (!sameName(name, expectedName) || !elementTypeMatchesOrigin(alType, segment.type)) continue;
         const endLine = findDeclarationBlockEnd(lines, line);
@@ -294,7 +349,7 @@ function findHintedPropertyLiteralCandidates(input, source, property, lines) {
     while ((match = re.exec(input)) !== null) {
         const raw = match[1];
         const value = raw.slice(1, -1).replace(/''/g, "'");
-        if (value !== source) continue;
+        if (source !== undefined && value !== source) continue;
         const literalOffset = match.index + match[0].lastIndexOf(raw);
         const start = positionAtOffset(input, literalOffset);
         const end = positionAtOffset(input, literalOffset + raw.length);

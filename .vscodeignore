@@ -11,3 +11,4 @@ docs/**
 pnpm-lock.yaml
 CHANGE_REPORT.md
 *.zip
+!docs/technical-reference.md

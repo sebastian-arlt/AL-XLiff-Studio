@@ -1,6 +1,7 @@
 'use strict';
 
 const vscode = require('vscode');
+const { setTabIcon } = require('./tabIcons');
 const { BRAND_NAME, CONFIG_SECTION, AI_USAGE_VIEW_TYPE } = require('./identity');
 const { getAiUsage, onDidChangeAiUsage } = require('./aiUsage');
 const {
@@ -33,6 +34,7 @@ class AiUsagePage {
     }
 
     constructor(panel, context) {
+        setTabIcon(panel, context && context.extensionUri, vscode, 'ai');
         this.panel = panel;
         this.context = context;
         this.disposables = [];

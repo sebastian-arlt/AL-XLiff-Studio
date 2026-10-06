@@ -10,6 +10,21 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const extensionSource = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
 const activitySource = fs.readFileSync(path.join(root, 'src', 'activityBar.js'), 'utf8');
 
+test('Project Overview expands languages with scoped guided workflows and availability guards', () => {
+    const module = {exports:{}};
+    new Function('require','module','exports',activitySource)(id=>id==='vscode'?{TreeItemCollapsibleState:{None:0,Collapsed:1},Uri:{parse:value=>value}}:id==='path'?path:id==='./identity'?{COMMAND_PREFIX:'alXliffStudio'}:{},module,module.exports);
+    const provider=Object.create(module.exports.ActivityBarProvider.prototype);
+    provider.snapshot={languages:[{uri:'file:///de.xlf',targetLanguage:'de-DE',syncStatus:'synced',metrics:{total:2,missing:1,review:0,qualityIssues:1}}]};
+    const language=provider.languageNodes()[0];
+    assert.equal(language.kind,'translation-language');
+    assert.equal(language.collapsibleState,1);
+    const actions=provider.languageActionNodes(language);
+    assert.equal(actions.length,7);
+    assert.equal(actions.find(item=>item.label==='Review translations').command,undefined);
+    assert.equal(actions.find(item=>item.label==='Sync this XLIFF').command,undefined);
+    assert.deepEqual(actions.find(item=>item.label==='Fix quality issues').command.arguments,['file:///de.xlf','quality-fix']);
+});
+
 test('contributes an AL Xliff Studio Activity Bar container with bundled SVG icon', () => {
     const containers = pkg.contributes.viewsContainers.activitybar;
     const container = containers.find(item => item.id === 'alXliffStudio');

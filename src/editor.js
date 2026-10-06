@@ -1,6 +1,7 @@
 'use strict';
 
 const vscode = require('vscode');
+const { setTabIcon } = require('./tabIcons');
 const { LNG_EDITOR_VIEW_TYPE } = require('./identity');
 const { parseLng, serializeLng } = require('./lng');
 
@@ -20,6 +21,7 @@ class LanguageMapEditorProvider {
     }
 
     async resolveCustomTextEditor(document, webviewPanel) {
+        setTabIcon(webviewPanel, this.context && this.context.extensionUri, vscode, 'memory');
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
         let applyingFromWebview = false;

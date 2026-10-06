@@ -2,6 +2,8 @@
 const { translationMemorySnapshots, mergeTranslationMemorySnapshots } = require('./translationMemory');
 
 const vscode = require('vscode');
+const { setTabIcon } = require('./tabIcons');
+const { whitespaceScript, whitespaceStyles } = require('./visibleCharacters');
 const { changedTextRange } = require('./textEditRange');
 const { getUnitIndex, unitAtOrdinal } = require('./unitIndex');
 const { BRAND_NAME, CONFIG_SECTION, XLIFF_EDITOR_VIEW_TYPE, COMMAND_PREFIX } = require('./identity');
@@ -741,9 +743,10 @@ class XliffEditorProvider {
         clearQualityDiagnostics(uri);
     }
 
-    async resolveCustomTextEditor(document, webviewPanel) {
+    async resolveCustomTextEditor(document, webviewPanel, options = {}) {
+        if (!options.headless) setTabIcon(webviewPanel, this.context && this.context.extensionUri, vscode, 'xliff');
         webviewPanel.webview.options = { enableScripts: true };
-        webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
+        if (!options.headless) webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
         let applyingFromWebview = false;
         const suppressedDocumentVersions = new Set();
         let disposed = false;
@@ -789,8 +792,10 @@ class XliffEditorProvider {
         const documentKey = document.uri.toString();
         retainDocumentSession(document.uri);
         const panelRecord = { panel: webviewPanel, ready: false };
-        if (!XliffEditorProvider.panelRecords.has(documentKey)) XliffEditorProvider.panelRecords.set(documentKey, new Set());
-        XliffEditorProvider.panelRecords.get(documentKey).add(panelRecord);
+        if (!options.headless) {
+            if (!XliffEditorProvider.panelRecords.has(documentKey)) XliffEditorProvider.panelRecords.set(documentKey, new Set());
+            XliffEditorProvider.panelRecords.get(documentKey).add(panelRecord);
+        }
 
         const postError = message => {
             if (!disposed) webviewPanel.webview.postMessage({ type: 'error', message: String(message || '') });
@@ -1558,6 +1563,44 @@ class XliffEditorProvider {
         });
 
         webviewPanel.webview.onDidReceiveMessage(async message => {
+            if (options.headless && message && message.type === 'guidedPersistDraft') {
+                try {
+                    const latestParsed = await parseWithDocumentSessionAsync(document.uri, document.getText(), Number(document.version));
+                    const unit = latestParsed.units[Number(message.ordinal)];
+                    if (Number(message.documentVersion) !== Number(document.version) || !unit || unit.id !== message.id || unit.source !== message.source || String(unit.translate || '').toLowerCase() === 'no') {
+                        postError('The XLIFF or draft identity changed. Reload the wizard.');
+                        return;
+                    }
+                    await persistStagedItem(Number(message.ordinal), { kind: 'draft', text: message.text, provenance: message.provenance, origin: message.origin });
+                    await webviewPanel.webview.postMessage({ type: 'guidedDraftPersisted', documentVersion: Number(document.version) });
+                } catch (error) { postError(formatError(error)); }
+                return;
+            }
+            // Guided Translation uses this same host, filters and materialization.
+            // Only compact membership stays in its host adapter; the webview gets one row.
+            if (options.headless && message && message.type === 'guidedQueue') {
+                const skippedOrdinals = new Set(Array.isArray(message.ordinals) ? message.ordinals.filter(Number.isInteger) : []);
+                const quick = message.workflow === 'skipped' ? {} : message.workflow === 'review' ? { review: true, proposal: true, draft: true }
+                    : message.workflow === 'quality-fix' ? { quality: true } : { missing: true };
+                const view = normalizeViewRequest({ quick });
+                const ordinals = [];
+                for (const row of activeRowStore.values()) {
+                    if (!row.notTranslatable && (message.workflow !== 'skipped' || skippedOrdinals.has(row.ordinal)) && rowMatchesView(row, view, activeViewKeyStore.get(row.ordinal))) ordinals.push(row.ordinal);
+                }
+                await webviewPanel.webview.postMessage({ type: 'guidedQueue', ordinals, documentVersion: Number(document.version) });
+                return;
+            }
+            if (options.headless && message && message.type === 'guidedRow') {
+                const row = activeRowStore.get(Number(message.ordinal));
+                let guidedRow = row ? materializeActiveRow(row) : undefined;
+                if (guidedRow && guidedRow.developerTranslation && (guidedRow.qualityIssues || []).some(issue => issue.code === 'developer-comment-mismatch')) {
+                    const provenance = provenanceEnabled() ? provenanceFromResolved({ source: 'comment', commentScope: 'unit' }, 'proposal') : undefined;
+                    guidedRow = { ...guidedRow, proposal: guidedRow.developerTranslation, proposalProvenance: provenance,
+                        proposalOrigin: provenance ? formatProvenanceLabel(provenance) : 'Developer comment' };
+                }
+                await webviewPanel.webview.postMessage({ type: 'guidedRow', row: guidedRow, documentVersion: Number(document.version) });
+                return;
+            }
             if (message && message.type === 'requestQualityPage') {
                 const store = qualityPageStore;
                 if (disposed || Number(message.revision) !== store.revision || Number(message.loadId) !== activeRowStoreLoadId || Number(message.documentVersion) !== Number(document.version)) return;
@@ -1675,6 +1718,16 @@ class XliffEditorProvider {
                     messagePerf.mark('wait for pending document mutations');
 
                     const requestedStages = Array.isArray(message.items) ? message.items : [];
+                    if (options.headless) {
+                        const latestParsed = await parseWithDocumentSessionAsync(document.uri, document.getText(), Number(document.version));
+                        if (Number(message.documentVersion) !== Number(document.version) || requestedStages.some(item => {
+                            const unit = latestParsed.units[Number(item.ordinal)];
+                            return !unit || unit.id !== item.id || unit.source !== item.source;
+                        })) {
+                            postError('The XLIFF or staged unit identity changed. Reload the wizard before saving.');
+                            return;
+                        }
+                    }
                     if (requestedStages.length) {
                         await enqueueDocumentMutation(async () => {
                             const stageChanges = requestedStages
@@ -2052,6 +2105,8 @@ class XliffEditorProvider {
                             const latestText = document.getText();
                             const latestParsed = await parseWithDocumentSessionAsync(document.uri, latestText, Number(document.version));
                             const latestUnit = latestParsed.units[ordinal];
+                            if (options.headless && Number(message.documentVersion) !== Number(document.version)) return { error: 'The XLIFF changed while this action was running. Reload the wizard.' };
+                            if (options.headless && latestUnit && String(message.id) !== String(latestUnit.id)) return { error: 'The translation unit identity changed. Reload the wizard.' };
                             if (!latestUnit) return { error: 'The translation unit no longer exists. Refresh the editor and try again.' };
                             if (requestedSource && latestUnit.source !== requestedSource) {
                                 return { error: 'The source text changed while this draft was open. Refresh the editor before applying it.' };
@@ -2290,7 +2345,8 @@ class XliffEditorProvider {
                 if (message.type === 'tryFile') {
                     const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
                     const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
-                    const missingUnits = parsed.units.filter(unit => isMissingTranslation(unit, treatNeedsTranslationAsMissing));
+                    const importVersion = Number(document.version);
+                    const missingUnits = parsed.units.filter(unit => isMissingTranslation(unit, treatNeedsTranslationAsMissing) && (!options.headless || !getStagedTranslation(unit)));
                     if (!missingUnits.length) {
                         showTransientStatus('AL Xliff Studio: no missing translations in this XLIFF.');
                         return;
@@ -2302,7 +2358,7 @@ class XliffEditorProvider {
                         const glossary = config.get('glossary.enabled', true) ? await readProjectGlossary(document.uri) : { entries: [] };
                         const glossaryEntries = glossary.entries || [];
                         const fuzzyOptions = {
-                            enabled: config.get('fuzzyMatch.enabled', false),
+                            enabled: !message.localOnly && config.get('fuzzyMatch.enabled', false),
                             minimumQuality: config.get('fuzzyMatch.minimumQuality', 80)
                         };
                         const bySource = new Map();
@@ -2364,7 +2420,7 @@ class XliffEditorProvider {
                         }
 
                         let aiProposals = 0;
-                        if (unresolved.length && config.get('ai.enabled', true) !== false) {
+                        if (!message.localOnly && unresolved.length && config.get('ai.enabled', true) !== false) {
                             const choice = await vscode.window.showWarningMessage(
                                 `${unresolved.length} open translation${unresolved.length === 1 ? '' : 's'}`,
                                 { modal: true },
@@ -2421,7 +2477,10 @@ class XliffEditorProvider {
                             }
                         }
 
-                        if (stagedPersistence.length) await persistStagedItems(stagedPersistence);
+                        if (stagedPersistence.length) {
+                            if (options.headless && Number(document.version) !== importVersion) throw new Error('Die XLIFF wurde während des Imports geändert. Bitte neu laden.');
+                            await persistStagedItems(stagedPersistence);
+                        }
                         await postDocument();
                         if (stagedTranslations.length) {
                             await webviewPanel.webview.postMessage({
@@ -2986,6 +3045,7 @@ class XliffEditorProvider {
 
 
                 if (message.type === 'aiTranslate') {
+                    const aiSnapshotVersion = Number(document.version);
                     const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
                     if (config.get('ai.enabled', true) === false) {
                         postError('AI translation is disabled in AL Xliff Studio settings.');
@@ -3005,6 +3065,10 @@ class XliffEditorProvider {
                         );
                         const aiDetailed = await translateItemsByKeyDetailed([aiItem], parsed.sourceLanguage, parsed.targetLanguage, undefined, undefined, document.uri);
                         const suggestion = aiDetailed.translations.get(aiItem.key);
+                        if (disposed || Number(document.version) !== aiSnapshotVersion) {
+                            postError('The XLIFF changed while AI was working. Refresh before requesting a new suggestion.');
+                            return;
+                        }
                         if (!suggestion) {
                             postError('The AI did not return a usable translation. Check placeholders or model availability.');
                             return;
@@ -3150,16 +3214,7 @@ tr.row-draft td:first-child { box-shadow:inset 3px 0 0 var(--vscode-descriptionF
 .whitespace-text { display:none; white-space:inherit; tab-size:4; }
 body.show-invisibles .printable-text { display:none; }
 body.show-invisibles .whitespace-text { display:inline; }
-.ws-char { position:relative; }
-.ws-char::after { position:absolute; left:0; top:0; color:var(--vscode-descriptionForeground); opacity:.9; pointer-events:none; user-select:none; font-weight:500; }
-.ws-space::after { content:'·'; width:100%; text-align:center; }
-.ws-tab::after { content:'→'; }
-.ws-newline::after, .ws-cr::after { content:'¶'; }
-.ws-nbsp::after { content:'⍽'; }
-.ws-zwsp::after { content:'ZWSP'; font-size:.65em; padding:0 1px; background:var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)); outline:1px solid var(--vscode-descriptionForeground); }
-.ws-zwnj::after { content:'ZWNJ'; font-size:.65em; padding:0 1px; background:var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)); outline:1px solid var(--vscode-descriptionForeground); }
-.ws-zwj::after { content:'ZWJ'; font-size:.65em; padding:0 1px; background:var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)); outline:1px solid var(--vscode-descriptionForeground); }
-.ws-shy::after { content:'SHY'; font-size:.65em; padding:0 1px; background:var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)); outline:1px solid var(--vscode-descriptionForeground); }
+${whitespaceStyles}
 .whitespace-editor { position:relative; width:100%; min-height:68px; background:var(--vscode-input-background); }
 .whitespace-editor textarea { position:relative; z-index:2; margin:0; tab-size:4; }
 .whitespace-overlay { display:none; position:absolute; inset:0; z-index:1; overflow:hidden; pointer-events:none; padding:6px 7px; line-height:1.35; color:var(--vscode-input-foreground); white-space:pre-wrap; overflow-wrap:break-word; tab-size:4; }
@@ -3531,28 +3586,7 @@ function hideLoading() {
   loadingOverlay.classList.remove('indeterminate');
 }
 function esc(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-function whitespaceDecoratedHtml(value) {
-  const text = String(value == null ? '' : value);
-  let html = '';
-  for (let index = 0; index < text.length; index++) {
-    const ch = text[index];
-    if (ch === ' ') { html += '<span class="ws-char ws-space"> </span>'; continue; }
-    if (ch === '\\t') { html += '<span class="ws-char ws-tab">\\t</span>'; continue; }
-    if (ch === '\\r') {
-      if (text[index + 1] === '\\n') continue;
-      html += '<span class="ws-char ws-cr"></span>\\r';
-      continue;
-    }
-    if (ch === '\\n') { html += '<span class="ws-char ws-newline"></span>\\n'; continue; }
-    if (ch === '\\u00a0' || ch === '\\u202f') { html += '<span class="ws-char ws-nbsp">' + ch + '</span>'; continue; }
-    if (ch === '\\u200b') { html += '<span class="ws-char ws-zwsp">' + ch + '</span>'; continue; }
-    if (ch === '\\u200c') { html += '<span class="ws-char ws-zwnj">' + ch + '</span>'; continue; }
-    if (ch === '\\u200d') { html += '<span class="ws-char ws-zwj">' + ch + '</span>'; continue; }
-    if (ch === '\\u00ad') { html += '<span class="ws-char ws-shy">' + ch + '</span>'; continue; }
-    html += esc(ch);
-  }
-  return html;
-}
+${whitespaceScript}
 function whitespaceStaticHtml(value) {
   return '<span class="printable-text">' + esc(value) + '</span><span class="whitespace-text" aria-hidden="true">' + whitespaceDecoratedHtml(value) + '</span>';
 }

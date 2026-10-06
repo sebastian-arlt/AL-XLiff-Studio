@@ -1,3 +1,68 @@
+# 1.11.83
+
+- Rewritten extension Details page with concise German explanations, a short start guide and three screenshots of actual Dashboard, Guided Translation and Editor views using example data.
+- Clearer command names and core setting descriptions in VS Code’s generated Features view. Technical material moved to docs/technical-reference.md.
+- Images are bundled for local VSIX use; relative links are preserved during packaging.
+
+# 1.11.82
+
+- Guided Translation adds Previous/Next navigation, preserves edited text as a draft on navigation and handoff, and retains hidden webview state. Revisited accepted entries show current targets; counters count unique entries.
+- Final summary reports missing, skipped, saved drafts, proposals, review, quality and unseen entries. Scoped follow-ups open missing, skipped-only, review or quality work only when available.
+- Saving a known XLIFF updates its dashboard row even while that dashboard is hidden.
+- Project Overview languages expand into Wizard, New language, Missing, Review, Quality, selected-file Sync and Expert Editor actions. Availability follows each language’s metrics.
+- All six Studio webview/custom-editor tab types have themed SVG icons.
+
+# 1.11.81
+
+- Guided Translation automatically offers the target-language Developer translation as a separate proposal when the current entry has developer-comment-mismatch. It uses the existing language parser and quality result.
+- Current translation and manual draft remain unchanged until explicit proposal selection and Apply. Developer-comment provenance is retained; foreign-language notes do not become proposals.
+
+# 1.11.80
+
+- Dashboard loading now matches the XLIFF Editor: slim nonblocking status strip at the top, two-pixel progress bar, stage and file count. Unknown totals animate; known progress is clamped.
+- Uses the same 300 ms display delay to avoid flicker. Completion and errors cancel delayed display. Row-specific synchronization stays inline.
+
+# 1.11.79
+
+- Guided Translation enables Review only when the displayed review count is greater than zero; zero or unavailable counts disable the workflow. The host uses the same check before starting it.
+
+# 1.11.78
+
+- Guided Translation shows the ¶ toggle only beside the entry-view heading, where source and translation are visible. It is hidden in selection, preparation, completion and summary.
+- Active ¶ toggle uses a solid blue background with white text; tooltip and accessible label reflect its state.
+
+# 1.11.77
+
+- The XLIFF Editor source-navigation button resolves the Xliff Generator object, element/label and property directly, even when the AL text has changed.
+- Implicit default Caption entries navigate to their object/field declaration. Comments and PermissionSet object references cannot masquerade as definitions.
+- Supports multiline labels, changed OptionMembers and AL enum value declarations. Ambiguous origins retain project-search fallback.
+
+# 1.11.76
+
+- Guided Translation adds the Expert Editor’s ¶ toggle for Source, Translation, saved target, proposal and developer notes, using a shared renderer. Draft text remains unchanged; decorations update during typing and scrolling.
+- New-language workflow now starts with an explicit preparation page: selected-file Sync, optional local translation import, then guided translation and final Quality Check.
+- Local import reuses Try Translation for Developer comments, exact companion .lng matches and exact glossary matches. It preserves existing staged translations and never starts AI or fuzzy matching.
+
+# 1.11.75
+
+- Guided Translation now walks through missing translations, review entries (including drafts and proposals), and quality issues one entry at a time.
+- Reuses the Expert Editor host for edits, placeholder validation, AI suggestions, staging, saving, glossary and Quality Check.
+- Shows progress, developer notes, separate suggestions, save controls and a final quality summary. Skipped edited texts remain drafts in the open XLIFF.
+- Rejects stale entry actions and external document changes; late AI responses cannot overwrite a changed document.
+- Dashboard icon-only actions and normal table header layout remain intact.
+
+## 1.11.74 — 2026-10-06
+
+- Fix dashboard column headers overlapping the first data row: remove the sticky offset inside the horizontal scroll container.
+- Show Wizard and XLIFF Editor as two compact, non-wrapping icon-only buttons. Preserve tooltips, accessible names and file-specific routing.
+
+## 1.11.73 — 2026-10-06
+
+- Dashboard: compact Wizard and XLIFF Editor actions per XLIFF, plus conditional file-only Sync with incremental row updates.
+- Guided Translation: shared start page for five workflows, selected language/file context, disabled states and existing editor/host service reuse.
+- Reuse upstream VS Code wand/edit Codicons; preserve Create-XLIFF and Expert Editor workflows.
+- Add 11 behavioral regressions covering multiple languages, selected-file sync, stale results, routing, concurrent refreshes and locale creation.
+
 ## 1.11.72
 
 - Preserve existing self-closing versus explicit closing syntax for empty Notes during synchronization.
