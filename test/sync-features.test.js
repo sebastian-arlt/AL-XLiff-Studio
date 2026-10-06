@@ -109,16 +109,17 @@ test('mergeTranslationUnits overwrite mode replaces existing targets', () => {
 });
 
 test('mergeTranslationUnits add mode inserts whole trans-units missing from target', () => {
-    const sourceXlf = parseXliff(`<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+    const sourceText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
 <trans-unit id="A"><source>Hello</source><target>Hallo Quelle</target></trans-unit>
 <trans-unit id="B"><source>World</source><target>Welt Quelle</target></trans-unit>
-</group></body></file></xliff>`);
+</group></body></file></xliff>`;
+    const sourceXlf = parseXliff(sourceText);
     const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
 <trans-unit id="A"><source>Hello</source><target>Hallo</target></trans-unit>
 </group></body></file></xliff>`;
     const targetParsed = parseXliff(targetText);
 
-    const result = mergeTranslationUnits(targetText, targetParsed, sourceXlf, 'add');
+    const result = mergeTranslationUnits(targetText, targetParsed, sourceXlf, 'add', { sourceText });
     assert.equal(result.addedCount, 1);
     assert.match(result.text, /id="B"/);
     assert.match(result.text, />Welt Quelle</);
@@ -257,7 +258,7 @@ test('duplicate id and generator-note validation can be configured independently
     assert.equal(props['alXliffStudio.validation.checkDuplicateGeneratorNotes'].default, true);
 });
 
-test('synchronizeTranslationUnits updates sources, adds new units and keeps obsolete units', () => {
+test('synchronizeTranslationUnits updates sources, adds new units and removes obsolete units', () => {
     const { synchronizeTranslationUnits } = require('../src/synchronize');
     const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
 <trans-unit id="A"><source>Old text</source><target state="translated">Alter Text</target></trans-unit>
@@ -271,13 +272,16 @@ test('synchronizeTranslationUnits updates sources, adds new units and keeps obso
     assert.equal(result.synchronizedSources, 1);
     assert.equal(result.flaggedTargets, 1);
     assert.equal(result.addedUnits, 1);
-    assert.equal(result.obsoleteUnits.length, 1);
+    assert.equal(result.removedUnits.length, 1);
+    assert.equal(result.removedUnits[0].id, 'OLD');
+    assert.equal(result.removedUnits[0].source, 'Obsolete');
+    assert.equal(result.removedUnits[0].target, 'Alt');
     assert.match(result.text, /<source>New text<\/source>/);
     assert.match(result.text, /state="needs-l10n">Alter Text<\/target>/);
     assert.match(result.text, /id="B"/);
     assert.match(result.text, /<target state="needs-translation"\/>/);
     assert.match(result.text, /DEU=Ganz neu/);
-    assert.match(result.text, /id="OLD"/);
+    assert.doesNotMatch(result.text, /id="OLD"/);
 });
 
 test('synchronizeTranslationUnits follows generator trans-unit order instead of appending new units', () => {
@@ -294,12 +298,13 @@ test('synchronizeTranslationUnits follows generator trans-unit order instead of 
 </group></body></file></xliff>`;
 
     const result = synchronizeTranslationUnits(targetText, sourceText);
-    const positions = ['id="A"', 'id="B"', 'id="C"', 'id="OLD"'].map(token => result.text.indexOf(token));
+    const positions = ['id="A"', 'id="B"', 'id="C"'].map(token => result.text.indexOf(token));
 
     assert.ok(positions.every(position => position >= 0));
     assert.ok(positions[0] < positions[1]);
     assert.ok(positions[1] < positions[2]);
-    assert.ok(positions[2] < positions[3]);
+    assert.doesNotMatch(result.text, /id="OLD"/);
+    assert.equal(result.removedUnits.length, 1);
     assert.match(result.text, /id="A"[\s\S]*?<target state="translated">A-DE<\/target>/);
     assert.match(result.text, /id="B"[\s\S]*?<target state="needs-translation"\/>/);
     assert.match(result.text, /id="C"[\s\S]*?<target state="translated">C-DE<\/target>/);
@@ -328,4 +333,111 @@ test('synchronizeTranslationUnits blocks source-language mismatch', () => {
     const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group><trans-unit id="A"><source>A</source></trans-unit></group></body></file></xliff>`;
     const sourceText = `<xliff><file source-language="de-DE"><body><group><trans-unit id="A"><source>A</source></trans-unit></group></body></file></xliff>`;
     assert.throws(() => synchronizeTranslationUnits(targetText, sourceText), /Source languages differ/);
+});
+
+test('source change promotes a no-state target to needs-l10n instead of treating it as missing', () => {
+    const { synchronizeTranslationUnits } = require('../src/synchronize');
+    const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="A"><source>Old caption</source><target>Alte Beschriftung</target></trans-unit>
+</group></body></file></xliff>`;
+    const sourceText = `<xliff><file source-language="en-US"><body><group>
+<trans-unit id="A"><source>New caption</source></trans-unit>
+</group></body></file></xliff>`;
+    const result = synchronizeTranslationUnits(targetText, sourceText);
+    assert.equal(result.flaggedTargets, 1);
+    assert.match(result.text, /<source>New caption<\/source>/);
+    assert.match(result.text, /<target state="needs-l10n">Alte Beschriftung<\/target>/);
+});
+
+test('synchronizeTranslationUnits is idempotent for an already synchronized translation XLIFF', () => {
+    const { synchronizeTranslationUnits } = require('../src/synchronize');
+    const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="A"><source>A</source><target state="translated">A-DE</target></trans-unit>
+<trans-unit id="B"><source>B</source><target state="needs-translation"/></trans-unit>
+</group></body></file></xliff>`;
+    const sourceText = `<xliff><file source-language="en-US"><body><group>
+<trans-unit id="A"><source>A</source></trans-unit>
+<trans-unit id="B"><source>B</source></trans-unit>
+</group></body></file></xliff>`;
+    const result = synchronizeTranslationUnits(targetText, sourceText);
+    assert.equal(result.text, targetText);
+    assert.equal(result.synchronizedSources, 0);
+    assert.equal(result.addedUnits, 0);
+});
+
+test('synchronizeTranslationUnits mirrors Developer notes from the generated XLIFF while preserving unrelated notes', () => {
+    const { synchronizeTranslationUnits } = require('../src/synchronize');
+    const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="A"><source>A</source><target state="translated">A-DE</target><note from="Developer" annotates="source" priority="2">DEU=Alt</note><note from="Xliff Generator">Table 1 - Field 2 - Caption</note><note from="AL.XliffStudio">Keep me</note></trans-unit>
+</group></body></file></xliff>`;
+    const sourceText = `<xliff><file source-language="en-US"><body><group>
+<trans-unit id="A"><source>A</source><note from="Developer" annotates="source" priority="2">DEU=Neu; FRA=Nouveau</note><note from="Xliff Generator">Table 1 - Field 2 - Caption (new generator detail)</note></trans-unit>
+</group></body></file></xliff>`;
+
+    const result = synchronizeTranslationUnits(targetText, sourceText);
+    assert.equal(result.synchronizedDeveloperNotes, 1);
+    assert.equal(result.synchronizedGeneratorNotes, 1);
+    assert.match(result.text, /<target state="translated">A-DE<\/target>/);
+    assert.match(result.text, /<note from="Developer" annotates="source" priority="2">DEU=Neu; FRA=Nouveau<\/note>/);
+    assert.doesNotMatch(result.text, /DEU=Alt/);
+    assert.match(result.text, /<note from="Xliff Generator">Table 1 - Field 2 - Caption \(new generator detail\)<\/note>/);
+    assert.match(result.text, /<note from="AL\.XliffStudio">Keep me<\/note>/);
+});
+
+test('synchronizeTranslationUnits removes stale Developer notes when the generated unit no longer contains them', () => {
+    const { synchronizeTranslationUnits } = require('../src/synchronize');
+    const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="A"><source>A</source><target>A-DE</target><note from="Developer">DEU=Alt</note><note from="AL.XliffStudio">Keep me</note></trans-unit>
+</group></body></file></xliff>`;
+    const sourceText = `<xliff><file source-language="en-US"><body><group>
+<trans-unit id="A"><source>A</source></trans-unit>
+</group></body></file></xliff>`;
+
+    const result = synchronizeTranslationUnits(targetText, sourceText);
+    assert.equal(result.synchronizedDeveloperNotes, 1);
+    assert.doesNotMatch(result.text, /from="Developer"/);
+    assert.match(result.text, /<note from="AL\.XliffStudio">Keep me<\/note>/);
+});
+
+test('synchronizeTranslationUnits preserves multiple generated Developer notes and becomes idempotent', () => {
+    const { synchronizeTranslationUnits } = require('../src/synchronize');
+    const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="A"><source>A</source><target>A-DE</target></trans-unit>
+</group></body></file></xliff>`;
+    const sourceText = `<xliff><file source-language="en-US"><body><group>
+<trans-unit id="A"><source>A</source>
+  <note from="Developer">DEU=Eins</note>
+  <note from='Developer' annotates="source">Comment only</note>
+</trans-unit>
+</group></body></file></xliff>`;
+
+    const first = synchronizeTranslationUnits(targetText, sourceText);
+    assert.equal(first.synchronizedDeveloperNotes, 1);
+    assert.equal((first.text.match(/from=["']Developer["']/g) || []).length, 2);
+    const second = synchronizeTranslationUnits(first.text, sourceText);
+    assert.equal(second.synchronizedDeveloperNotes, 0);
+    assert.equal(second.text, first.text);
+});
+
+
+test('synchronizeTranslationUnits adds and removes Xliff Generator notes authoritatively', () => {
+    const { synchronizeTranslationUnits } = require('../src/synchronize');
+    const targetText = `<xliff><file source-language="en-US" target-language="de-DE"><body><group>
+<trans-unit id="A"><source>A</source><target>A-DE</target><note from="AL.XliffStudio">Keep me</note></trans-unit>
+<trans-unit id="B"><source>B</source><target>B-DE</target><note from="Xliff Generator">Stale context</note></trans-unit>
+</group></body></file></xliff>`;
+    const sourceText = `<xliff><file source-language="en-US"><body><group>
+<trans-unit id="A"><source>A</source><note from="Xliff Generator" annotates="general" priority="3">Table Demo - Field A - Property Caption</note></trans-unit>
+<trans-unit id="B"><source>B</source></trans-unit>
+</group></body></file></xliff>`;
+
+    const first = synchronizeTranslationUnits(targetText, sourceText);
+    assert.equal(first.synchronizedGeneratorNotes, 2);
+    assert.match(first.text, /Table Demo - Field A - Property Caption/);
+    assert.doesNotMatch(first.text, /Stale context/);
+    assert.match(first.text, /<note from="AL\.XliffStudio">Keep me<\/note>/);
+
+    const second = synchronizeTranslationUnits(first.text, sourceText);
+    assert.equal(second.synchronizedGeneratorNotes, 0);
+    assert.equal(second.text, first.text);
 });
