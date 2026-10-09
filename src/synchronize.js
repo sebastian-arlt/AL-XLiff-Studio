@@ -112,7 +112,7 @@ function synchronizeTranslationUnits(targetText, sourceText) {
     };
 }
 
-function synchronizeNotesByFrom(targetUnitRaw, sourceUnitRaw, fromValue, eol = '\n') {
+function synchronizeNotesByFrom(targetUnitRaw, sourceUnitRaw, fromValue, eol = String(targetUnitRaw || '').includes('\r\n') ? '\r\n' : '\n') {
     const targetRaw = String(targetUnitRaw || '');
     const sourceRaw = String(sourceUnitRaw || '');
     const wantedFrom = String(fromValue || '').trim().toLowerCase();
@@ -125,6 +125,33 @@ function synchronizeNotesByFrom(targetUnitRaw, sourceUnitRaw, fromValue, eol = '
     if (currentSignature.length === desiredSignature.length
         && currentSignature.every((value, index) => value === desiredSignature[index])) {
         return { text: targetRaw, changed: false };
+    }
+
+    if (currentNotes.length && desiredNotes.length) {
+        // Retain matching notes in their slots even when the generator lists
+        // them in another order. Only unmatched contents need replacement.
+        const remaining = desiredNotes.slice();
+        const replacements = currentNotes.map(current => {
+            const index = remaining.findIndex(note => normalizeNoteForComparison(note.raw) === normalizeNoteForComparison(current.raw));
+            return index < 0 ? undefined : remaining.splice(index, 1)[0];
+        });
+        for (let index = 0; index < replacements.length; index++) {
+            if (!replacements[index]) replacements[index] = remaining.shift();
+        }
+        let updated = targetRaw;
+        for (let index = currentNotes.length - 1; index >= 0; index--) {
+            const current = currentNotes[index], desired = replacements[index];
+            const linePrefix = targetRaw.slice(targetRaw.lastIndexOf('\n', current.index - 1) + 1, current.index);
+            const indent = /^[ \t]*$/.test(linePrefix) ? linePrefix : detectUnitChildIndent(targetRaw);
+            let replacement = desired ? reindentXmlBlock(preserveEmptyNoteForm(desired.raw, current.raw), indent, eol).slice(indent.length) : '';
+            if (desired && normalizeNoteForComparison(desired.raw) === normalizeNoteForComparison(current.raw)) replacement = current.raw;
+            if (index === currentNotes.length - 1 && remaining.length) {
+                const multiline = /\r?\n/.test(targetRaw);
+                replacement += remaining.map(note => multiline ? eol + reindentXmlBlock(note.raw, indent, eol) : note.raw).join('');
+            }
+            updated = updated.slice(0, current.index) + replacement + updated.slice(current.index + current.raw.length);
+        }
+        return { text: updated, changed: updated !== targetRaw };
     }
 
     let updated = removeNotesByFrom(targetRaw, wantedFrom);
@@ -242,8 +269,13 @@ function replaceTranslationUnitSequence(text, orderedUnitRaws) {
     const nextNewline = source.indexOf('\n', lastEnd);
     const lastLineEnd = nextNewline >= 0 ? nextNewline + 1 : lastEnd;
 
-    const prefix = source.slice(0, firstLineStart);
-    const suffix = source.slice(lastLineEnd);
+    // Only consume surrounding indentation/newlines, never inline XML wrappers.
+    const beforeFirst = source.slice(firstLineStart, firstStart);
+    const sequenceStart = /^[ \t]*$/.test(beforeFirst) ? firstLineStart
+        : firstStart - (beforeFirst.match(/[ \t]*$/) || [''])[0].length;
+    const sequenceEnd = /^[ \t\r\n]*$/.test(source.slice(lastEnd, lastLineEnd)) ? lastLineEnd : lastEnd;
+    const prefix = source.slice(0, sequenceStart);
+    const suffix = source.slice(sequenceEnd);
     const ordered = orderedUnitRaws
         .map(raw => indentBlock(raw, indent, eol))
         .join(eol);

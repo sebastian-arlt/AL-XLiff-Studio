@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const vscode = require('vscode');
 const { setTabIcon } = require('./tabIcons');
@@ -13,11 +14,11 @@ function workflowsFor(file) {
     const m = file.metrics || {};
     const usable = !file.error;
     return [
-        { id: 'new-language', title: 'Neue Sprache übersetzen', description: 'Sync prüfen, lokale Übersetzungen vorbereiten und Einträge durchgehen.', enabled: usable && m.missing > 0, filter: 'missing' },
-        { id: 'translate-missing', title: 'Fehlende Übersetzungen ergänzen', description: `${m.missing || 0} fehlende Übersetzungen`, enabled: usable && m.missing > 0, filter: 'missing' },
-        { id: 'review', title: 'Übersetzungen überprüfen', description: `${m.review || 0} Einträge zur Prüfung; Entwürfe und Vorschläge einzeln prüfen.`, enabled: usable && m.review > 0, filter: 'review' },
-        { id: 'quality-fix', title: 'Qualitätsprobleme beheben', description: `${m.qualityIssues || 0} Qualitätsprobleme`, enabled: usable && m.qualityIssues > 0, filter: 'quality' },
-        { id: 'sync-project', title: 'Projekt synchronisieren', description: 'In diesem Einstieg wird ausschließlich die ausgewählte XLIFF synchronisiert.', enabled: usable && file.syncStatus === 'out-of-sync' }
+        { id: 'new-language', title: t("Translate a new language"), description: t("Check sync, prepare local translations and review entries."), enabled: usable && m.missing > 0, filter: 'missing' },
+        { id: 'translate-missing', title: t("Complete missing translations"), description: t("{0} missing translations", m.missing || 0), enabled: usable && m.missing > 0, filter: 'missing' },
+        { id: 'review', title: t("Review translations"), description: t("{0} entries to review; check drafts and proposals individually.", m.review || 0), enabled: usable && m.review > 0, filter: 'review' },
+        { id: 'quality-fix', title: t("Fix quality issues"), description: t("{0} quality issues", m.qualityIssues || 0), enabled: usable && m.qualityIssues > 0, filter: 'quality' },
+        { id: 'sync-project', title: t("Synchronize project"), description: t("This workflow synchronizes only the selected XLIFF."), enabled: usable && file.syncStatus === 'out-of-sync' }
     ];
 }
 
@@ -88,13 +89,13 @@ class GuidedTranslationView {
             if (message.type === 'followup') {
                 const counts = this.session && this.session.summary;
                 const key = { 'translate-missing': 'missing', review: 'review', 'quality-fix': 'quality', skipped: 'skipped' }[message.workflow];
-                if (!counts || !key || !counts[key]) throw new Error('Für diesen Schritt sind keine offenen Einträge verfügbar.');
+                if (!counts || !key || !counts[key]) throw new Error(t("No open entries are available for this step."));
                 await this.session.start(message.workflow);
                 return;
             }
             if (message.type === 'backToSelection') {
                 await this.preserveEntry(message);
-                if (this.session && this.session.drafts.size) throw new Error('Bitte zuerst die Entwürfe speichern.');
+                if (this.session && this.session.drafts.size) throw new Error(t("Please save your drafts first."));
                 if (this.session) this.session.active = false;
                 this.preparing = false;
                 await this.refresh();
@@ -102,8 +103,8 @@ class GuidedTranslationView {
                 return;
             }
             if (message.type === 'prepareLanguage') {
-                if (!this.preparing) throw new Error('Kein aktiver Neue-Sprache-Ablauf.');
-                if (!['sync', 'import', 'continue'].includes(message.action)) throw new Error('Unbekannter Vorbereitungsschritt.');
+                if (!this.preparing) throw new Error(t("No active new-language workflow."));
+                if (!['sync', 'import', 'continue'].includes(message.action)) throw new Error(t("Unknown preparation step."));
                 if (message.action === 'sync') {
                     await this.refresh();
                     if (this.file.syncStatus === 'out-of-sync') await this.services.sync(this.uri);
@@ -134,7 +135,7 @@ class GuidedTranslationView {
                 await this.refresh();
             } else {
                 if (workflow.id === 'new-language') {
-                    if (this.session && this.session.drafts.size) throw new Error('Bitte zuerst die Entwürfe speichern.');
+                    if (this.session && this.session.drafts.size) throw new Error(t("Please save your drafts first."));
                     if (this.session) this.session.active = false;
                     this.preparing = true;
                     await this.showPreparation();

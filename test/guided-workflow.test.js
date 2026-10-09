@@ -37,7 +37,7 @@ test('previous and next preserve edits and materialize updated targets without d
         assert.equal(t.session.queue.length, 1);
         assert.equal(t.session.current.id, 'b');
         t.h.externalChange(t.h.document.getText() + '\n<!-- external edit -->');
-        await assert.rejects(t.session.start('skipped'), /außerhalb/);
+        await assert.rejects(t.session.start('skipped'), /outside/);
     } finally { t.close(); }
 });
 
@@ -79,7 +79,7 @@ test('Expert Editor handoff checkpoints the visible input before opening the sel
 
 test('developer mismatch offers matching language as proposal and applies only after explicit selection', async () => {
     const initial = setStagedTranslations(xlf('<trans-unit id="a"><source>Customer</source><target state="translated">Kunde</target><note from="Developer">DEU=Debitor;ENU=Customer</note></trans-unit>'), [{ ordinal: 0, staged: { kind: 'draft', text: 'Mein Entwurf', origin: 'Manual' } }]).text;
-    const t = await create(initial);
+    const t = await create(initial, { 'provenance.enabled': true });
     try {
         await t.session.start('quality-fix');
         assert.ok(t.session.current.qualityIssues.some(issue => issue.code === 'developer-comment-mismatch'));
@@ -124,8 +124,8 @@ test('new language local import preserves existing drafts, stages developer text
         assert.equal(t.session.state().conflict, false);
     } finally { t.close(); }
 });
-async function create(text) {
-    const h = await createEditorHarness({ root: fs.mkdtempSync(path.join(os.tmpdir(), 'xliff-guided-')), text });
+async function create(text, configuration = {}) {
+    const h = await createEditorHarness({ root: fs.mkdtempSync(path.join(os.tmpdir(), 'xliff-guided-')), text, configuration });
     const states = [];
     const session = new GuidedWorkflowSession(h.document, h.provider, state => states.push(structuredClone(state)));
     await session.connect();
@@ -209,12 +209,12 @@ test('wizard rejects stale entry actions and external edits without overwriting 
         const oldRevision = session.revision;
         await act('skip');
         await session.act({ action: 'apply', text: 'Wrong row', revision: oldRevision });
-        assert.match(session.error, /früheren Eintrag/);
+        assert.match(session.error, /earlier entry/);
         assert.equal(parseXliff(h.document.getText()).units[1].target, '');
         const external = h.document.getText() + '\n<!-- external -->';
         h.externalChange(external);
         await act('apply', 'Extern überschrieben');
-        assert.match(session.error, /außerhalb/);
+        assert.match(session.error, /outside/);
         assert.equal(h.document.getText(), external);
         assert.equal(session.state().conflict, true);
     } finally { testCase.close(); }

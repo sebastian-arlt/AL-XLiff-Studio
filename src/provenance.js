@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const { isStudioNoteFrom } = require('./identity');
 
@@ -141,7 +142,7 @@ function latestProvenance(noteDetails) {
 function formatProvenanceLabel(event) {
     const value = sanitizeProvenance(event);
     if (!value) return '';
-    let label = LABELS[value.origin] || value.origin || 'Unknown';
+    let label = LABELS[value.origin] ? t(LABELS[value.origin]) : value.origin || t("Unknown");
     if (value.origin === 'fuzzy' && Number.isFinite(Number(value.quality))) label += ` ${Math.round(Number(value.quality))}%`;
     if (value.origin === 'ai' && value.model) {
         const modelLabel = value.model.name || value.model.id || value.model.family;
@@ -156,7 +157,7 @@ function formatProvenanceLabel(event) {
             const modelLabel = value.basedOn.model.name || value.basedOn.model.id || value.basedOn.model.family;
             if (modelLabel) basedOn += ` · ${modelLabel}`;
         }
-        label += ` · based on ${basedOn}`;
+        label += t(" · based on {0}", basedOn);
     }
     return label;
 }
@@ -166,7 +167,7 @@ function formatProvenanceHistory(event) {
     if (!value) return '';
     const parts = [formatProvenanceLabel(value)];
     if (value.action) parts.push(value.action);
-    if (value.matchedSource) parts.push(`from “${value.matchedSource}”`);
+    if (value.matchedSource) parts.push(t("from “{0}”", value.matchedSource));
     if (value.scope === 'same-source') parts.push('reused from same source');
     if (value.previousState !== undefined) parts.push(`previous state: ${value.previousState || '(no state)'}`);
     if (value.sourceFile) parts.push(value.sourceFile);

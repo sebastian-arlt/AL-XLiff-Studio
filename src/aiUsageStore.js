@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const vscode = require('vscode');
 const path = require('path');
@@ -244,18 +245,18 @@ function aggregateUsageDocuments(documents) {
 
     for (const item of Array.isArray(documents) ? documents : []) {
         if (item.error || !item.document) {
-            if (item.error) aggregate.errors.push(`${item.project || 'Project'}: ${item.error}`);
+            if (item.error) aggregate.errors.push(`${item.project || t("Project")}: ${item.error}`);
             continue;
         }
         const document = normalizeUsageDocument(item.document);
         addStats(aggregate.totals, document.totals);
-        aggregate.projects.push({ project: item.project || 'Project', uri: item.uri && item.uri.toString ? item.uri.toString() : String(item.uri || ''), ...document.totals, updatedAt: document.updatedAt });
+        aggregate.projects.push({ project: item.project || t("Project"), uri: item.uri && item.uri.toString ? item.uri.toString() : String(item.uri || ''), ...document.totals, updatedAt: document.updatedAt });
         if (!aggregate.updatedAt || String(document.updatedAt || '') > aggregate.updatedAt) aggregate.updatedAt = document.updatedAt;
 
         for (const model of document.models) mergeNamedStats(modelMap, model.key, model);
         for (const pair of document.languagePairs) mergeNamedStats(pairMap, pair.key, pair);
         for (const day of document.days) mergeNamedStats(dayMap, day.date, day);
-        for (const recent of document.recentRequests) aggregate.recentRequests.push({ ...recent, project: item.project || 'Project' });
+        for (const recent of document.recentRequests) aggregate.recentRequests.push({ ...recent, project: item.project || t("Project") });
     }
 
     aggregate.models = [...modelMap.values()].sort((a, b) => Number(b.totalTokens || 0) - Number(a.totalTokens || 0));
@@ -310,7 +311,7 @@ function emitPersistedChange(uri) {
 }
 
 function projectLabelForUsageUri(uri) {
-    if (!uri) return 'Project';
+    if (!uri) return t("Project");
     const folder = vscode.workspace.getWorkspaceFolder ? vscode.workspace.getWorkspaceFolder(uri) : undefined;
     if (folder && folder.uri && folder.uri.scheme === 'file' && uri.scheme === 'file') {
         const relative = path.relative(folder.uri.fsPath, uri.fsPath).split(path.sep);
@@ -318,7 +319,7 @@ function projectLabelForUsageUri(uri) {
         const projectParts = studioIndex > 0 ? relative.slice(0, studioIndex) : [];
         return projectParts.length ? `${folder.name}/${projectParts.join('/')}` : folder.name;
     }
-    return folder ? folder.name : path.basename(path.dirname(path.dirname(uri.fsPath || ''))) || 'Project';
+    return folder ? folder.name : path.basename(path.dirname(path.dirname(uri.fsPath || ''))) || t("Project");
 }
 
 async function readText(uri) {

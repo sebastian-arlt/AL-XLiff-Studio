@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const { normalizeBcp47 } = require('./languageCodes');
 const { normalizeQualityIgnoreCodes } = require('./qualityIgnore');
@@ -17,7 +18,7 @@ function parseGlossary(text) {
     try {
         raw = JSON.parse(String(text || '').trim() || '{}');
     } catch (err) {
-        return { version: GLOSSARY_VERSION, entries: [], errors: [`Invalid JSON: ${err.message}`] };
+        return { version: GLOSSARY_VERSION, entries: [], errors: [t("Invalid JSON: {0}", err.message)] };
     }
 
     const sourceEntries = Array.isArray(raw.entries) ? raw.entries : [];
@@ -27,7 +28,7 @@ function parseGlossary(text) {
 
     sourceEntries.forEach((item, index) => {
         if (!item || typeof item !== 'object') {
-            errors.push(`Entry ${index + 1}: must be an object.`);
+            errors.push(t("Entry {0}: must be an object.", index + 1));
             return;
         }
         const source = String(item.source || '').trim();
@@ -37,13 +38,13 @@ function parseGlossary(text) {
         const caseSensitive = Boolean(item.caseSensitive);
         const note = String(item.note || '').trim();
         const qualityIgnore = normalizeQualityIgnoreCodes(item.qualityIgnore || (item.quality && item.quality.ignore));
-        if (!source) errors.push(`Entry ${index + 1}: source must not be empty.`);
-        if (!targetLanguage) errors.push(`Entry ${index + 1}: targetLanguage must not be empty.`);
-        if (!translation) errors.push(`Entry ${index + 1}: translation must not be empty.`);
+        if (!source) errors.push(t("Entry {0}: source must not be empty.", index + 1));
+        if (!targetLanguage) errors.push(t("Entry {0}: targetLanguage must not be empty.", index + 1));
+        if (!translation) errors.push(t("Entry {0}: translation must not be empty.", index + 1));
         if (!source || !targetLanguage || !translation) return;
         const key = glossaryKey(source, targetLanguage, caseSensitive);
         if (seen.has(key)) {
-            errors.push(`Entry ${index + 1}: duplicate term for ${targetLanguage}: ${source}`);
+            errors.push(t("Entry {0}: duplicate term for {1}: {2}", index + 1, targetLanguage, source));
             return;
         }
         seen.add(key);
@@ -135,7 +136,7 @@ function findTerminologyViolationsForTerms(translation, relevantEntries) {
             source: entry.source,
             expected: entry.translation,
             note: entry.note,
-            message: `Terminology: “${entry.source}” should use “${entry.translation}”.`
+            message: t("Terminology: “{0}” should use “{1}”.", entry.source, entry.translation)
         }));
 }
 

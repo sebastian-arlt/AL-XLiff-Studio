@@ -95,7 +95,7 @@ test('Problems Quick Fix navigation is configurable and enabled by default', () 
     assert.ok(setting);
     assert.equal(setting.type, 'boolean');
     assert.equal(setting.default, true);
-    assert.match(setting.description, /Show translation unit/);
+    assert.match(require("../package.nls.json")[setting.description.slice(1,-1)], /Show Translation Unit/);
 });
 
 test('diagnostic creation stores a stable translation-unit mapping used by the Quick Fix', async () => {

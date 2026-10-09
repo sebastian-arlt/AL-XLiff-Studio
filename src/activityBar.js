@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const vscode = require('vscode');
 const path = require('path');
@@ -185,7 +186,7 @@ class ActivityBarProvider {
         const open = Number(totals.missing || 0) + Number(totals.review || 0) + Number(totals.quality || 0) + Number(totals.missingLocales || 0) + Number(totals.errors || 0);
         this.treeView.badge = open > 0 ? {
             value: open,
-            tooltip: `${open} open translation/quality item${open === 1 ? '' : 's'}`
+            tooltip: t("{0} open translation/quality item{1}", open, open === 1 ? '' : 's')
         } : undefined;
     }
 
@@ -321,11 +322,11 @@ class ActivityBarProvider {
             const languageCount = this.snapshot.languages.length;
             const projectCount = this.snapshot.projects.length;
             const roots = [
-                node('section-languages', 'Languages', `${languageCount}`, 'globe', vscode.TreeItemCollapsibleState.Expanded),
-                node('section-tools', 'Tools', '', 'tools', vscode.TreeItemCollapsibleState.Expanded),
-                node('section-project', 'Project', projectCount > 1 ? `${projectCount} projects` : '', 'project', vscode.TreeItemCollapsibleState.Expanded)
+                node('section-languages', t("Languages"), `${languageCount}`, 'globe', vscode.TreeItemCollapsibleState.Expanded),
+                node('section-tools', t("Tools"), '', 'tools', vscode.TreeItemCollapsibleState.Expanded),
+                node('section-project', t("Project"), projectCount > 1 ? t("{0} projects", projectCount) : '', 'project', vscode.TreeItemCollapsibleState.Expanded)
             ];
-            if (this.snapshot.error) roots.unshift(node('error', 'Could not load AL Xliff Studio overview', '', 'error', vscode.TreeItemCollapsibleState.None, this.snapshot.error));
+            if (this.snapshot.error) roots.unshift(node('error', t("Could not load AL Xliff Studio overview"), '', 'error', vscode.TreeItemCollapsibleState.None, this.snapshot.error));
             return roots;
         }
 
@@ -340,14 +341,14 @@ class ActivityBarProvider {
     languageNodes() {
         const multiProject = new Set(this.snapshot.languages.map(item => item.project).filter(Boolean)).size > 1;
         if (!this.snapshot.languages.length) {
-            return [node('languages-empty', 'No translation XLIFFs found', '', 'info', vscode.TreeItemCollapsibleState.None, 'No translation XLIFFs or missing supportedLocales were found.')];
+            return [node('languages-empty', t("No translation XLIFFs found"), '', 'info', vscode.TreeItemCollapsibleState.None, t("No translation XLIFFs or missing supportedLocales were found."))];
         }
         return this.snapshot.languages.map((entry, index) => {
-            const locale = entry.targetLanguage || entry.fileName || 'Unknown language';
+            const locale = entry.targetLanguage || entry.fileName || t("Unknown language");
             if (entry.kind === 'missing-locale') {
                 const canGenerate = Boolean(entry.generateAvailable && entry.generatorUri);
-                const description = multiProject ? `${entry.project} · Not created` : 'Not created';
-                const tooltip = `${locale} is listed in app.json supportedLocales but no translation XLIFF exists.${canGenerate ? '\nClick to generate it from the project .g.xlf.' : '\nNo unambiguous .g.xlf is available for generation.'}`;
+                const description = multiProject ? t("{0} · Not created", entry.project) : t("Not created");
+                const tooltip = t("{0} is listed in app.json supportedLocales but no translation XLIFF exists.{1}", locale, canGenerate ? t("\nClick to generate it from the project .g.xlf.") : t("\nNo unambiguous .g.xlf is available for generation."));
                 return node(
                     `language-missing-${index}`,
                     locale,
@@ -355,18 +356,18 @@ class ActivityBarProvider {
                     canGenerate ? 'add' : 'warning',
                     vscode.TreeItemCollapsibleState.None,
                     tooltip,
-                    canGenerate ? command(`${COMMAND_PREFIX}.activity.generateLocale`, 'Generate XLIFF', { generatorUri: entry.generatorUri, targetLanguage: locale }) : undefined
+                    canGenerate ? command(`${COMMAND_PREFIX}.activity.generateLocale`, t("Generate XLIFF"), { generatorUri: entry.generatorUri, targetLanguage: locale }) : undefined
                 );
             }
             if (entry.error) {
                 return node(
                     `language-error-${index}`,
                     locale,
-                    multiProject ? `${entry.project} · Error` : 'Error',
+                    multiProject ? `${entry.project} · Error` : t("Error"),
                     'error',
                     vscode.TreeItemCollapsibleState.None,
                     `${entry.relativePath}\n${entry.error}`,
-                    command(`${COMMAND_PREFIX}.openXliffEditor`, 'Open XLIFF', vscode.Uri.parse(entry.uri))
+                    command(`${COMMAND_PREFIX}.openXliffEditor`, t("Open XLIFF"), vscode.Uri.parse(entry.uri))
                 );
             }
             const metrics = entry.metrics || emptyMetrics();
@@ -375,7 +376,7 @@ class ActivityBarProvider {
             if (metrics.review) parts.push(`${metrics.review} review`);
             if (metrics.qualityIssues) parts.push(`${metrics.qualityIssues} quality`);
             const ready = parts.length === 0;
-            const status = ready ? 'Ready' : parts.join(' · ');
+            const status = ready ? t("Ready") : parts.join(' · ');
             const description = multiProject ? `${entry.project} · ${status}` : status;
             const tooltip = [
                 `${entry.sourceLanguage || '?'} → ${locale}`,
@@ -383,9 +384,9 @@ class ActivityBarProvider {
                 `${metrics.translated || 0} / ${metrics.total || 0} translated`,
                 `${metrics.missing || 0} missing`,
                 `${metrics.review || 0} review`,
-                `${metrics.qualityIssues || 0} quality issue${metrics.qualityIssues === 1 ? '' : 's'}`,
+                t("{0} quality issue{1}", metrics.qualityIssues || 0, metrics.qualityIssues === 1 ? '' : 's'),
                 '',
-                'Click to open this XLIFF in AL Xliff Studio.'
+                t("Click to open this XLIFF in AL Xliff Studio.")
             ].join('\n');
             const language = node(
                 `language-${index}`,
@@ -394,7 +395,7 @@ class ActivityBarProvider {
                 ready ? 'check' : 'warning',
                 vscode.TreeItemCollapsibleState.Collapsed,
                 tooltip,
-                command(`${COMMAND_PREFIX}.openXliffEditor`, 'Open XLIFF', vscode.Uri.parse(entry.uri))
+                command(`${COMMAND_PREFIX}.openXliffEditor`, t("Open XLIFF"), vscode.Uri.parse(entry.uri))
             );
             language.kind = 'translation-language'; language.entry = entry;
             return language;
@@ -409,30 +410,30 @@ class ActivityBarProvider {
             return item;
         };
         return [
-            wizard('', 'Guided Translation', 'Wizard', 'wand', true, 'Common guided workflow: previous/next navigation, protected drafts, AI and Developer proposals, invisible characters, Save and final summary with follow-up actions.'),
-            wizard('new-language', 'New language', 'Sync and local import', 'globe', m.missing > 0, 'Check selected-file Sync, prepare Developer/.lng/glossary drafts, then translate.'),
-            wizard('translate-missing', 'Translate missing', String(m.missing || 0), 'edit', m.missing > 0, 'Translate missing entries one at a time.'),
-            wizard('review', 'Review translations', String(m.review || 0), 'checklist', m.review > 0, 'Review translations, drafts and proposals; enabled only when review entries exist.'),
-            wizard('quality-fix', 'Fix quality issues', String(m.qualityIssues || 0), 'warning', m.qualityIssues > 0, 'Fix quality issues; matching Developer comments appear as proposals.'),
-            wizard('sync-project', 'Sync this XLIFF', entry.syncStatus || '', 'sync', entry.syncStatus === 'out-of-sync', 'Synchronize only this language; dashboard updates its row.'),
-            node(element.id + '-expert', 'Expert XLIFF Editor', '', 'file-code', vscode.TreeItemCollapsibleState.None, 'Open the full editor with filters and pagination.', command(COMMAND_PREFIX + '.openXliffEditor', 'Open XLIFF', uri))
+            wizard('', t("Guided Translation"), t("Wizard"), 'wand', true, t("Common guided workflow: previous/next navigation, protected drafts, AI and Developer proposals, invisible characters, Save and final summary with follow-up actions.")),
+            wizard('new-language', t("New language"), t("Sync and local import"), 'globe', m.missing > 0, t("Check selected-file Sync, prepare Developer/.lng/glossary drafts, then translate.")),
+            wizard('translate-missing', t("Translate missing"), String(m.missing || 0), 'edit', m.missing > 0, t("Translate missing entries one at a time.")),
+            wizard('review', t("Review translations"), String(m.review || 0), 'checklist', m.review > 0, t("Review translations, drafts and proposals; enabled only when review entries exist.")),
+            wizard('quality-fix', t("Fix quality issues"), String(m.qualityIssues || 0), 'warning', m.qualityIssues > 0, t("Fix quality issues; matching Developer comments appear as proposals.")),
+            wizard('sync-project', t("Sync this XLIFF"), entry.syncStatus || '', 'sync', entry.syncStatus === 'out-of-sync', t("Synchronize only this language; dashboard updates its row.")),
+            node(element.id + '-expert', t("Expert XLIFF Editor"), '', 'file-code', vscode.TreeItemCollapsibleState.None, t("Open the full editor with filters and pagination."), command(COMMAND_PREFIX + '.openXliffEditor', t("Open XLIFF"), uri))
         ];
     }
 
     toolNodes() {
         return [
-            node('tool-dashboard', 'Translation Dashboard', 'Project overview', 'dashboard', vscode.TreeItemCollapsibleState.None, 'Open the project-wide Translation Dashboard.', command(`${COMMAND_PREFIX}.openDashboard`, 'Open Translation Dashboard')),
-            node('tool-glossary', 'Glossary', 'Terminology', 'book', vscode.TreeItemCollapsibleState.None, 'Open the AL Xliff Studio terminology glossary.', command(`${COMMAND_PREFIX}.openGlossary`, 'Open Glossary')),
-            node('tool-ai-usage', 'AI Usage', 'Token statistics', 'graph', vscode.TreeItemCollapsibleState.None, 'Open persistent AI token usage statistics.', command(`${COMMAND_PREFIX}.openAiUsage`, 'Open AI Usage')),
-            node('tool-sync', 'Sync all XLIFFs', '', 'sync', vscode.TreeItemCollapsibleState.None, 'Synchronize all translation XLIFFs with their matching .g.xlf.', command(`${COMMAND_PREFIX}.activity.syncAll`, 'Sync all XLIFFs')),
-            node('tool-quality', 'Quality Check', '', 'checklist', vscode.TreeItemCollapsibleState.None, 'Run the Quality Check for all translation XLIFFs and open the Problems view.', command(`${COMMAND_PREFIX}.activity.qualityAll`, 'Run Quality Check')),
-            node('tool-refresh', 'Refresh', '', 'refresh', vscode.TreeItemCollapsibleState.None, 'Refresh the AL Xliff Studio Activity Bar overview.', command(`${COMMAND_PREFIX}.activity.refresh`, 'Refresh'))
+            node('tool-dashboard', t("Translation Dashboard"), t("Project overview"), 'dashboard', vscode.TreeItemCollapsibleState.None, t("Open the project-wide Translation Dashboard."), command(`${COMMAND_PREFIX}.openDashboard`, t("Open Translation Dashboard"))),
+            node('tool-glossary', t("Glossary"), t("Terminology"), 'book', vscode.TreeItemCollapsibleState.None, t("Open the AL Xliff Studio terminology glossary."), command(`${COMMAND_PREFIX}.openGlossary`, t("Open Glossary"))),
+            node('tool-ai-usage', t("AI Usage"), t("Token statistics"), 'graph', vscode.TreeItemCollapsibleState.None, t("Open persistent AI token usage statistics."), command(`${COMMAND_PREFIX}.openAiUsage`, t("Open AI Usage"))),
+            node('tool-sync', t("Sync all XLIFFs"), '', 'sync', vscode.TreeItemCollapsibleState.None, t("Synchronize all translation XLIFFs with their matching .g.xlf."), command(`${COMMAND_PREFIX}.activity.syncAll`, t("Sync all XLIFFs"))),
+            node('tool-quality', t("Quality Check"), '', 'checklist', vscode.TreeItemCollapsibleState.None, t("Run the Quality Check for all translation XLIFFs and open the Problems view."), command(`${COMMAND_PREFIX}.activity.qualityAll`, t("Run Quality Check"))),
+            node('tool-refresh', t("Refresh"), '', 'refresh', vscode.TreeItemCollapsibleState.None, t("Refresh the AL Xliff Studio Activity Bar overview."), command(`${COMMAND_PREFIX}.activity.refresh`, t("Refresh")))
         ];
     }
 
     projectNodes() {
         if (!this.snapshot.projects.length) {
-            return [node('project-empty', 'No app.json found', '', 'warning', vscode.TreeItemCollapsibleState.None, 'No AL project app.json was found in the workspace.')];
+            return [node('project-empty', t("No app.json found"), '', 'warning', vscode.TreeItemCollapsibleState.None, t("No AL project app.json was found in the workspace."))];
         }
         if (this.snapshot.projects.length === 1) return this.projectResourceNodes(this.snapshot.projects[0]);
         return this.snapshot.projects.map((project, index) => ({
@@ -440,7 +441,7 @@ class ActivityBarProvider {
             kind: 'project-group',
             project,
             label: project.name,
-            description: 'AL project',
+            description: t("AL project"),
             icon: 'folder',
             collapsibleState: vscode.TreeItemCollapsibleState.Collapsed,
             tooltip: vscode.Uri.parse(project.rootUri).fsPath
@@ -450,26 +451,26 @@ class ActivityBarProvider {
     projectResourceNodes(project) {
         const rootUri = vscode.Uri.parse(project.rootUri);
         const items = [
-            node(`project-root-${project.rootUri}`, project.name, 'AL project', 'project', vscode.TreeItemCollapsibleState.None, rootUri.fsPath, command(`${COMMAND_PREFIX}.activity.reveal`, 'Reveal project', { uri: project.rootUri, ensureStudio: false })),
-            node(`project-app-${project.rootUri}`, 'app.json', '', 'json', vscode.TreeItemCollapsibleState.None, vscode.Uri.parse(project.appJsonUri).fsPath, command(`${COMMAND_PREFIX}.activity.openText`, 'Open app.json', project.appJsonUri))
+            node(`project-root-${project.rootUri}`, project.name, t("AL project"), 'project', vscode.TreeItemCollapsibleState.None, rootUri.fsPath, command(`${COMMAND_PREFIX}.activity.reveal`, t("Reveal project"), { uri: project.rootUri, ensureStudio: false })),
+            node(`project-app-${project.rootUri}`, 'app.json', '', 'json', vscode.TreeItemCollapsibleState.None, vscode.Uri.parse(project.appJsonUri).fsPath, command(`${COMMAND_PREFIX}.activity.openText`, t("Open app.json"), project.appJsonUri))
         ];
         for (let i = 0; i < project.generators.length; i++) {
             const uri = vscode.Uri.parse(project.generators[i]);
-            items.push(node(`project-generator-${project.rootUri}-${i}`, path.basename(uri.fsPath), '.g.xlf', 'file-code', vscode.TreeItemCollapsibleState.None, uri.fsPath, command(`${COMMAND_PREFIX}.activity.openText`, 'Open generated XLIFF', project.generators[i])));
+            items.push(node(`project-generator-${project.rootUri}-${i}`, path.basename(uri.fsPath), '.g.xlf', 'file-code', vscode.TreeItemCollapsibleState.None, uri.fsPath, command(`${COMMAND_PREFIX}.activity.openText`, t("Open generated XLIFF"), project.generators[i])));
         }
         if (!project.generators.length) {
-            items.push(node(`project-generator-missing-${project.rootUri}`, 'No .g.xlf found', '', 'warning', vscode.TreeItemCollapsibleState.None, 'No Translations/*.g.xlf was found in this AL project.'));
+            items.push(node(`project-generator-missing-${project.rootUri}`, t("No .g.xlf found"), '', 'warning', vscode.TreeItemCollapsibleState.None, t("No Translations/*.g.xlf was found in this AL project.")));
         }
         items.push(
-            node(`project-studio-${project.rootUri}`, '.alxliffstudio', 'Studio data', 'folder', vscode.TreeItemCollapsibleState.None, vscode.Uri.parse(project.studioUri).fsPath, command(`${COMMAND_PREFIX}.activity.reveal`, 'Reveal .alxliffstudio', { uri: project.studioUri, ensureStudio: true, projectUri: project.rootUri })),
-            node(`project-lng-${project.rootUri}`, 'Translation Memory', '.alxliffstudio/lng', 'database', vscode.TreeItemCollapsibleState.None, vscode.Uri.parse(project.languageMapUri).fsPath, command(`${COMMAND_PREFIX}.activity.reveal`, 'Reveal Translation Memory', { uri: project.languageMapUri, ensureStudio: true, projectUri: project.rootUri })),
-            node(`project-glossary-${project.rootUri}`, 'Glossary', '.alxliffstudio/glossary.json', 'book', vscode.TreeItemCollapsibleState.None, 'Open the terminology glossary for this AL project.', command(`${COMMAND_PREFIX}.openGlossary`, 'Open Glossary', rootUri))
+            node(`project-studio-${project.rootUri}`, '.alxliffstudio', t("Studio data"), 'folder', vscode.TreeItemCollapsibleState.None, vscode.Uri.parse(project.studioUri).fsPath, command(`${COMMAND_PREFIX}.activity.reveal`, t("Reveal .alxliffstudio"), { uri: project.studioUri, ensureStudio: true, projectUri: project.rootUri })),
+            node(`project-lng-${project.rootUri}`, t("Translation Memory"), '.alxliffstudio/lng', 'database', vscode.TreeItemCollapsibleState.None, vscode.Uri.parse(project.languageMapUri).fsPath, command(`${COMMAND_PREFIX}.activity.reveal`, t("Reveal Translation Memory"), { uri: project.languageMapUri, ensureStudio: true, projectUri: project.rootUri })),
+            node(`project-glossary-${project.rootUri}`, t("Glossary"), '.alxliffstudio/glossary.json', 'book', vscode.TreeItemCollapsibleState.None, t("Open the terminology glossary for this AL project."), command(`${COMMAND_PREFIX}.openGlossary`, t("Open Glossary"), rootUri))
         );
         if (project.debugEnabled) {
-            items.push(node(`project-debug-${project.rootUri}`, 'AI Debug Log', '.alxliffstudio/debug', 'output', vscode.TreeItemCollapsibleState.None, 'Open the AI request/response debug log for this project.', command(`${COMMAND_PREFIX}.openAiDebugLog`, 'Open AI Debug Log', rootUri)));
+            items.push(node(`project-debug-${project.rootUri}`, t("AI Debug Log"), '.alxliffstudio/debug', 'output', vscode.TreeItemCollapsibleState.None, t("Open the AI request/response debug log for this project."), command(`${COMMAND_PREFIX}.openAiDebugLog`, t("Open AI Debug Log"), rootUri)));
         }
         if (project.performanceDebugEnabled) {
-            items.push(node(`project-performance-debug-${project.rootUri}`, 'Performance Debug Log', '.alxliffstudio/debug/performance.log', 'pulse', vscode.TreeItemCollapsibleState.None, 'Open detailed timing traces for XLIFF loading, saving, draft persistence, Quality Check, editor messages, and webview rendering.', command(`${COMMAND_PREFIX}.openPerformanceDebugLog`, 'Open Performance Debug Log', rootUri)));
+            items.push(node(`project-performance-debug-${project.rootUri}`, t("Performance Debug Log"), '.alxliffstudio/debug/performance.log', 'pulse', vscode.TreeItemCollapsibleState.None, t("Open detailed timing traces for XLIFF loading, saving, draft persistence, Quality Check, editor messages, and webview rendering."), command(`${COMMAND_PREFIX}.openPerformanceDebugLog`, t("Open Performance Debug Log"), rootUri)));
         }
         return items;
     }
@@ -480,32 +481,32 @@ class ActivityBarProvider {
         let generatorUri;
         try { generatorUri = vscode.Uri.parse(String(value.generatorUri || '')); } catch (_) { generatorUri = undefined; }
         if (!targetLanguage || !generatorUri || !generatorUri.fsPath || !generatorUri.fsPath.toLowerCase().endsWith('.g.xlf')) {
-            throw new Error('The generated .g.xlf or target locale is no longer available.');
+            throw new Error(t("The generated .g.xlf or target locale is no longer available."));
         }
         const projectRoot = await findProjectRoot(generatorUri);
-        if (!projectRoot) throw new Error('Could not determine the AL project for the selected .g.xlf.');
+        if (!projectRoot) throw new Error(t("Could not determine the AL project for the selected .g.xlf."));
         const app = parseAppSupportedLocales(await readText(vscode.Uri.joinPath(projectRoot, 'app.json')));
         if (!app.supportedLocales.some(locale => normalizeLocale(locale) === normalizeLocale(targetLanguage))) {
-            throw new Error(`${targetLanguage} is no longer listed in app.json supportedLocales.`);
+            throw new Error(t("{0} is no longer listed in app.json supportedLocales.", targetLanguage));
         }
         const generatorText = await readText(generatorUri);
         const generatorSession = getDocumentSession(generatorUri, generatorText);
         const generatorConfig = vscode.workspace.getConfiguration(CONFIG_SECTION, generatorUri);
         const parsed = await getParsedDocumentSessionAsync(generatorSession, generatorText, async value => (await parseXliffAdaptive(value, generatorConfig)).parsed);
         if (normalizeLocale(parsed.sourceLanguage) === normalizeLocale(targetLanguage)) {
-            throw new Error(`${targetLanguage} is the source language and does not require a translation XLIFF.`);
+            throw new Error(t("{0} is the source language and does not require a translation XLIFF.", targetLanguage));
         }
         const filename = translationFilenameForGenerator(generatorUri.fsPath, targetLanguage);
-        if (!filename) throw new Error('Could not determine the translation XLIFF filename.');
+        if (!filename) throw new Error(t("Could not determine the translation XLIFF filename."));
         const targetUri = vscode.Uri.file(path.join(path.dirname(generatorUri.fsPath), filename));
         if (await workspaceFileExists(targetUri)) {
-            vscode.window.showInformationMessage(`${BRAND_NAME}: ${filename} already exists.`);
+            vscode.window.showInformationMessage(t("{0}: {1} already exists.", BRAND_NAME, filename));
             await this.refresh();
             return;
         }
         const text = createTranslationXliffFromGenerator(generatorText, targetLanguage);
         await vscode.workspace.fs.writeFile(targetUri, Buffer.from(text, 'utf8'));
-        vscode.window.showInformationMessage(`${BRAND_NAME}: created ${filename} for ${targetLanguage}.`);
+        vscode.window.showInformationMessage(t("{0}: created {1} for {2}.", BRAND_NAME, filename, targetLanguage));
         await this.refresh();
         await vscode.commands.executeCommand(`${COMMAND_PREFIX}.openXliffEditor`, targetUri);
     }
@@ -608,7 +609,7 @@ async function readText(uri) {
 }
 
 function formatError(err) {
-    return err instanceof Error ? err.message : String(err || 'Unknown error');
+    return err instanceof Error ? err.message : String(err || t("Unknown error"));
 }
 
 module.exports = {

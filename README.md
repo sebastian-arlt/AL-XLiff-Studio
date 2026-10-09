@@ -1,57 +1,59 @@
 # AL Xliff Studio
 
-**AL-Anwendungen übersetzen – übersichtlich, direkt in VS Code.**
+**Translate Business Central AL apps — clearly, directly in VS Code.**
 
-AL Xliff Studio hilft dir, die Texte deiner Microsoft Dynamics 365 Business Central App zu übersetzen und zu prüfen. Du siehst, was noch fehlt, kannst vorhandene Übersetzungen nutzen und behältst die Kontrolle über jeden Vorschlag.
+See what is missing, reuse existing translations and review every proposal before applying it. English is the default interface language; German is selected automatically when VS Code uses German. The interface language is independent of your XLIFF languages.
 
-## Alle Sprachen im Blick
+[Deutsche Beschreibung](https://github.com/sebastian-arlt/AL-XLiff-Studio/blob/main/docs/readme.de.md)
 
-Das **Translation Dashboard** zeigt den Stand jeder Sprache: fertige Übersetzungen, fehlende Texte, Einträge zur Prüfung und Qualitätsprobleme. Öffne den Wizard oder den XLIFF Editor direkt neben einer Datei. Eine nicht synchronisierte Sprache kannst du einzeln aktualisieren.
+## All languages at a glance
 
-![Translation Dashboard mit drei Sprachen, Fortschritt und direkten Aktionen](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/main/resources/overview/dashboard.png)
+The **Translation Dashboard** shows progress, missing translations, review entries and quality issues for each language. Open the wizard or XLIFF Editor beside a file. Synchronize an individual language when its source is out of date.
 
-## Schritt für Schritt übersetzen
+![Translation Dashboard with language progress and direct actions](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/main/resources/overview/dashboard.png)
 
-**Guided Translation** führt dich durch fehlende Texte, die Prüfung vorhandener Übersetzungen oder Qualitätsprobleme. Quelltext, Übersetzung und Vorschlag stehen zusammen mit den Entwicklerhinweisen bereit.
+## Translate one step at a time
 
-- **← / →** wechseln zum vorherigen oder nächsten Eintrag und erhalten deinen bearbeiteten Text als Entwurf.
-- **Vorschlag einsetzen** übernimmt einen Vorschlag in das Eingabefeld. Erst **Übernehmen** bestätigt die Übersetzung.
-- **AI-Vorschlag** liefert auf Wunsch einen zusätzlichen Vorschlag.
-- **¶** macht versteckte Zeichen sichtbar, ohne den Text zu verändern.
+**Guided Translation** takes you through missing translations, reviews and quality fixes. Source text, current translation, proposals and developer notes appear together.
 
-Passt ein Entwicklerhinweis zur Zielsprache und weicht die Übersetzung davon ab, erscheint der Hinweis als Vorschlag. Am Ende siehst du die offenen Aufgaben und kannst direkt mit Review, übersprungenen Einträgen oder Qualitätskorrekturen weitermachen.
+- **← / →** move between entries and preserve your input as a draft.
+- **Use proposal** fills the editing field. **Apply** confirms the translation.
+- **AI proposal** requests another suggestion when you need one.
+- **¶** reveals invisible characters without changing the text.
 
-![Guided Translation zeigt Quelltext, aktuelle Übersetzung und den passenden Entwicklertext als Vorschlag](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/main/resources/overview/guided.png)
+A matching developer note can become a proposal when the translation differs from it. The final summary shows remaining work and lets you continue with missing entries, skipped entries, reviews or quality fixes.
 
-## Mehrere Texte gezielt bearbeiten
+![Guided Translation with a source, current translation and developer proposal](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/main/resources/overview/guided.png)
 
-Im **XLIFF Editor** kannst du Übersetzungen nebeneinander bearbeiten und nach fehlenden Texten, Entwürfen, Vorschlägen oder Qualitätsproblemen filtern. Suche und Seitenaufteilung helfen auch bei großen Dateien.
+## Work with several entries
 
-Die **Lupe** öffnet die zugehörige AL-Definition, etwa ein Label, eine Caption oder einen ToolTip. Entwicklerhinweise und Herkunftsinformationen helfen dir, den Text im richtigen Zusammenhang zu übersetzen.
+The **XLIFF Editor** shows translations side by side. Filter missing entries, drafts, proposals and quality issues. Search and pagination keep large files manageable.
 
-![XLIFF Editor mit Quelltexten, Übersetzungen, Status und Entwicklerhinweisen](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/main/resources/overview/editor.png)
+The **magnifying glass** opens the matching AL definition, such as a Label, Caption or ToolTip. Developer notes and translation origins provide context.
 
-## Vorhandene Arbeit wiederverwenden
+![XLIFF Editor with sources, translations, states and developer notes](https://raw.githubusercontent.com/sebastian-arlt/AL-XLiff-Studio/main/resources/overview/editor.png)
 
-| Funktion | Dein Nutzen |
+## Reuse your work
+
+| Feature | What it does |
 | --- | --- |
-| **Sync** | Gleicht eine Übersetzungsdatei mit den aktuellen Texten deiner App ab. |
-| **Lokale Übersetzungen** | Nutzt Entwicklerkommentare, Sprachdateien und passende Glossareinträge als Ausgangspunkt. |
-| **Glossar** | Hilft, Fachbegriffe einheitlich zu übersetzen. |
-| **Quality Check** | Findet unter anderem fehlerhafte Platzhalter, abweichende Entwicklertexte und Terminologieprobleme. |
-| **AL-Hover** | Zeigt vorhandene Übersetzungen direkt beim Arbeiten im AL-Code. |
-| **AI Usage** | Zeigt die erfasste Nutzung der AI-Übersetzung. |
+| **Sync** | Updates a translation file from the current generated texts. |
+| **Local translations** | Uses developer comments, language maps and glossary matches. |
+| **Glossary** | Helps you use consistent terminology. |
+| **Quality Check** | Finds placeholder errors, developer-comment differences and terminology issues. |
+| **AL hover** | Shows existing translations while you work in AL code. |
+| **AI Usage** | Shows recorded AI translation usage. |
 
-**Du entscheidest, was übernommen wird.** Ein Vorschlag ist noch keine bestätigte Übersetzung. Übernehmen ändert die geöffnete Datei; Speichern schreibt die Änderungen auf den Datenträger. Die AI-Funktionen verwenden ein verfügbares VS-Code-Sprachmodell.
+**You decide what to apply.** A proposal is not a confirmed translation. Apply changes the open file; Save writes it to disk. AI features use an available VS Code language model.
 
-## Einfach starten
+## Get started
 
-1. Öffne dein AL-Projekt in VS Code.
-2. Öffne **AL Xliff Studio** in der Seitenleiste. Klappe eine Sprache im **Project Overview** auf oder öffne das Dashboard.
-3. Starte **Guided Translation** für eine schrittweise Bearbeitung oder den **XLIFF Editor** für die Tabellenansicht.
+1. Open your AL project in VS Code.
+2. Open **AL Xliff Studio** in the sidebar. Expand a language in **Project Overview** or open the dashboard.
+3. Choose **Guided Translation** for a guided workflow or **XLIFF Editor** for the full table view.
 
-Für eine neue Sprache kannst du zuerst Sync prüfen und lokale Übersetzungen vorbereiten. Fehlt eine in deiner App vorgesehene XLIFF, bietet das Dashboard die Erstellung an, sobald eine passende generierte Datei vorhanden ist.
+For a new language, first check sync and prepare local translations. If a language listed in app.json has no XLIFF, the dashboard offers to create one when a matching generated file is available.
 
-Die Bilder zeigen die tatsächlichen Erweiterungsansichten mit Beispieldaten. AL Xliff Studio benötigt VS Code 1.97 oder neuer. Eine lokale VSIX installierst du über **Extensions: Install from VSIX…**.
+The images show real views with example data, including German UI examples. VS Code 1.97 or later is required. Install a local VSIX through **Extensions: Install from VSIX…**. To switch the interface language, use **Configure Display Language** in VS Code and restart when prompted.
 
-[Technische Referenz und weitere Einstellungen](https://github.com/sebastian-arlt/AL-XLiff-Studio/blob/main/docs/technical-reference.md)
+[Technical reference](https://github.com/sebastian-arlt/AL-XLiff-Studio/blob/main/docs/technical-reference.md)

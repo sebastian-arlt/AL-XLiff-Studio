@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const { getAttribute, getUnitRaw, setAttribute, encodeXmlText, isMissingTranslation, removeNabNotes } = require('./xliff');
 const { findDuplicateIds, findDuplicateGeneratorNotes } = require('./validate');
@@ -48,7 +49,7 @@ function validateMergeStructure(parsed, label) {
 
     const parts = [];
     if (duplicateIds.length) parts.push(`duplicate trans-unit id(s): ${duplicateIds.join(', ')}`);
-    if (duplicateNotes.length) parts.push(`${duplicateNotes.length} duplicate Xliff Generator note(s)`);
+    if (duplicateNotes.length) parts.push(t("{0} duplicate Xliff Generator note(s)", duplicateNotes.length));
     return { valid: false, reason: `${label} XLIFF contains ${parts.join(' and ')}.` };
 }
 
@@ -113,7 +114,7 @@ function mergeTranslationUnits(targetText, targetParsed, sourceParsed, mode, opt
         throw error;
     }
 
-    const sourceStructure = validateMergeStructure(sourceParsed, 'Source');
+    const sourceStructure = validateMergeStructure(sourceParsed, t("Source"));
     const targetStructure = validateMergeStructure(targetParsed, 'Target');
     const structuralFailure = !sourceStructure.valid ? sourceStructure : (!targetStructure.valid ? targetStructure : undefined);
     if (structuralFailure) {

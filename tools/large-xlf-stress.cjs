@@ -165,7 +165,11 @@ async function runStress(options = {}) {
         await measure('Rapid Quality refresh / real cancellation', async () => {
             const start = h.messages.length, eventStart = events.length;
             const first = h.send({ type: 'validateQuality', items: [{ ...draft, translation: 'Alt %1.' }] });
-            await delay(10);
+            // Wait for an actual worker before testing cancellation. A fixed
+            // delay can supersede only queued work on a busy machine.
+            const workerDeadline = performance.now() + 5000;
+            while (!events.slice(eventStart).some(event => event.event === 'started') && performance.now() < workerDeadline) await delay(5);
+            assert.ok(events.slice(eventStart).some(event => event.event === 'started'), 'first quality worker must start');
             const second = h.send({ type: 'validateQuality', items: [{ ...draft, translation: 'Neu %1.' }] });
             await Promise.all([first, second]);
             assert.equal(h.messages.slice(start).filter(message => message.type === 'qualityReport').length, 1);

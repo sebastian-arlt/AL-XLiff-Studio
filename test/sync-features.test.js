@@ -441,3 +441,23 @@ test('synchronizeTranslationUnits adds and removes Xliff Generator notes authori
     assert.equal(second.synchronizedGeneratorNotes, 0);
     assert.equal(second.text, first.text);
 });
+
+test('Sync preserves inline XLIFF/file/body wrappers and target language',()=>{
+ const {synchronizeTranslationUnits}=require('../src/synchronize');
+ const target='<xliff version="1.2"><file source-language="en-US" target-language="de-DE"><body><trans-unit id="a"><source>Hello</source><target state="translated">Hallo</target></trans-unit>\n<trans-unit id="b"><source>World</source><target/></trans-unit></body></file></xliff>';
+ const generator=target.replace(' target-language="de-DE"','').replace('Hello','Hello again');
+ const result=synchronizeTranslationUnits(target,generator);
+ assert.ok(result.text.startsWith('<xliff'));assert.ok(result.text.endsWith('</body></file></xliff>'));
+ assert.equal(parseXliff(result.text).targetLanguage,'de-DE');assert.equal(parseXliff(result.text).units[0].target,'Hallo');
+ assert.equal(synchronizeTranslationUnits(result.text,generator).text,result.text);
+});
+
+test('Sync adding a unit to fully inline XML is stable across repeated synchronization',()=>{
+ const {synchronizeTranslationUnits}=require('../src/synchronize');
+ const target='<xliff><file source-language="en-US" target-language="de-DE"><body><trans-unit id="a"><source>Hello</source><target>Hallo</target></trans-unit></body></file></xliff>';
+ const generator=target.replace('</body>','<trans-unit id="b"><source>World</source></trans-unit></body>');
+ const first=synchronizeTranslationUnits(target,generator);
+ assert.equal(first.addedUnits,1);
+ assert.equal(parseXliff(first.text).targetLanguage,'de-DE');
+ assert.equal(synchronizeTranslationUnits(first.text,generator).text,first.text);
+});

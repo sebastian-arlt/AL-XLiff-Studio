@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const vscode = require('vscode');
 const { CONFIG_SECTION, BRAND_NAME, COMMAND_PREFIX } = require('./identity');
@@ -117,12 +118,12 @@ function registerQualityDiagnosticNavigation(context, openTarget) {
                     const targetKey = `${target.ordinal}\u0000${target.unitId}\u0000${target.source}`;
                     if (seenTargets.has(targetKey)) continue;
                     seenTargets.add(targetKey);
-                    const action = new vscode.CodeAction(`${BRAND_NAME}: Show translation unit`, vscode.CodeActionKind.QuickFix);
+                    const action = new vscode.CodeAction(t("{0}: Show translation unit", BRAND_NAME), vscode.CodeActionKind.QuickFix);
                     action.diagnostics = [diagnostic];
                     action.isPreferred = true;
                     action.command = {
                         command: SHOW_TRANSLATION_UNIT_COMMAND,
-                        title: `${BRAND_NAME}: Show translation unit`,
+                        title: t("{0}: Show translation unit", BRAND_NAME),
                         arguments: [{ uri: document.uri, target }]
                     };
                     actions.push(action);

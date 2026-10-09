@@ -12,7 +12,7 @@ const activitySource = fs.readFileSync(path.join(root, 'src', 'activityBar.js'),
 
 test('Project Overview expands languages with scoped guided workflows and availability guards', () => {
     const module = {exports:{}};
-    new Function('require','module','exports',activitySource)(id=>id==='vscode'?{TreeItemCollapsibleState:{None:0,Collapsed:1},Uri:{parse:value=>value}}:id==='path'?path:id==='./identity'?{COMMAND_PREFIX:'alXliffStudio'}:{},module,module.exports);
+    new Function('require','module','exports',activitySource)(id=>id==='vscode'?{TreeItemCollapsibleState:{None:0,Collapsed:1},Uri:{parse:value=>value}}:id==='path'?path:id==='./identity'?{COMMAND_PREFIX:'alXliffStudio'}:id==='./localization'?require('../src/localization'):{},module,module.exports);
     const provider=Object.create(module.exports.ActivityBarProvider.prototype);
     provider.snapshot={languages:[{uri:'file:///de.xlf',targetLanguage:'de-DE',syncStatus:'synced',metrics:{total:2,missing:1,review:0,qualityIssues:1}}]};
     const language=provider.languageNodes()[0];
@@ -38,16 +38,16 @@ test('contributes a project overview Activity Bar tree', () => {
     const views = pkg.contributes.views.alXliffStudio;
     const view = views.find(item => item.id === 'alXliffStudio.dashboardLauncher');
     assert.ok(view);
-    assert.equal(view.name, 'Project Overview');
+    assert.equal(require('../package.nls.json')[view.name.slice(1,-1)], 'Project Overview');
     assert.ok(pkg.activationEvents.includes('onView:alXliffStudio.dashboardLauncher'));
     assert.match(extensionSource, /registerActivityBar\(context/);
     assert.doesNotMatch(extensionSource, /registerDashboardActivityBar/);
 });
 
 test('Activity Bar has Languages, Tools, and Project sections with direct actions', () => {
-    assert.match(activitySource, /'Languages'/);
-    assert.match(activitySource, /'Tools'/);
-    assert.match(activitySource, /'Project'/);
+    assert.match(activitySource, /['"]Languages['"]/);
+    assert.match(activitySource, /['"]Tools['"]/);
+    assert.match(activitySource, /['"]Project['"]/);
     assert.match(activitySource, /Translation Dashboard/);
     assert.match(activitySource, /Glossary/);
     assert.match(activitySource, /AI Usage/);

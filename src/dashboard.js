@@ -1,4 +1,5 @@
 'use strict';
+const { t, htmlText, scriptString, uiLanguage } = require('./localization');
 
 const vscode = require('vscode');
 const { setTabIcon } = require('./tabIcons');
@@ -34,7 +35,7 @@ class TranslationDashboard {
 
         const panel = vscode.window.createWebviewPanel(
             TranslationDashboard.viewType,
-            `${BRAND_NAME} — Translation Dashboard`,
+            t("{0} — Translation Dashboard", BRAND_NAME),
             column || vscode.ViewColumn.One,
             { enableScripts: true, retainContextWhenHidden: true }
         );
@@ -113,8 +114,8 @@ class TranslationDashboard {
 
     dispose() {
         this.disposed = true;
-        for (const controller of this.rowSyncs.values()) controller.abort('Dashboard closed.');
-        if (this.syncController) this.syncController.abort("Dashboard closed.");
+        for (const controller of this.rowSyncs.values()) controller.abort(t("Dashboard closed."));
+        if (this.syncController) this.syncController.abort(t("Dashboard closed."));
         if (TranslationDashboard.currentPanel === this) TranslationDashboard.currentPanel = undefined;
         for (const disposable of this.disposables.splice(0)) {
             try { disposable.dispose(); } catch (_) { /* ignore */ }
@@ -128,7 +129,7 @@ class TranslationDashboard {
         const exclude = config.get('excludeGlob', '**/*.g.xlf');
         const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
 
-        await this.panel.webview.postMessage({ type: 'loading', message: 'Finding translation XLIFF files…', current: 0, total: 0 });
+        await this.panel.webview.postMessage({ type: 'loading', message: t("Finding translation XLIFF files…"), current: 0, total: 0 });
         const uris = await vscode.workspace.findFiles(include, exclude);
         if (generation !== this.refreshGeneration) return;
 
@@ -138,7 +139,7 @@ class TranslationDashboard {
             const uri = uris[index];
             await this.panel.webview.postMessage({
                 type: 'loading',
-                message: `Scanning ${path.basename(uri.fsPath)}`,
+                message: t("Scanning {0}", path.basename(uri.fsPath)),
                 current: index,
                 total: uris.length
             });
@@ -261,13 +262,13 @@ class TranslationDashboard {
 
     async synchronizeFile(uri) {
         const key = uri.toString();
-        if (this.rowSyncs.has(key) || this.syncController) throw new Error('Synchronization is already running.');
+        if (this.rowSyncs.has(key) || this.syncController) throw new Error(t("Synchronization is already running."));
         const controller = new AbortController();
         this.rowSyncs.set(key, controller);
         if (!this.disposed) await this.panel.webview.postMessage({ type: 'rowSync', uri: key, busy: true });
         try {
             const outcome = await synchronizeTranslationFile(uri, controller);
-            if (outcome.missingGenerator) throw new Error('No unambiguous matching .g.xlf is available. Refresh the dashboard.');
+            if (outcome.missingGenerator) throw new Error(t("No unambiguous matching .g.xlf is available. Refresh the dashboard."));
             if (!this.disposed) await this.refreshFile(uri);
         } catch (error) {
             if (!this.disposed) await this.panel.webview.postMessage({ type: 'rowSync', uri: key, busy: false, error: formatError(error) });
@@ -280,7 +281,7 @@ class TranslationDashboard {
 
     async generateSupportedLocale(message) {
         const targetLanguage = String(message && message.targetLanguage || '').trim().replace(/_/g, '-');
-        if (!targetLanguage) throw new Error('Missing target locale.');
+        if (!targetLanguage) throw new Error(t("Missing target locale."));
 
         let generatorUri;
         try {
@@ -289,15 +290,15 @@ class TranslationDashboard {
             generatorUri = undefined;
         }
         if (!generatorUri || !generatorUri.fsPath || !generatorUri.fsPath.toLowerCase().endsWith('.g.xlf')) {
-            throw new Error('The generated .g.xlf for this locale is no longer available.');
+            throw new Error(t("The generated .g.xlf for this locale is no longer available."));
         }
 
         const projectRoot = await findProjectRoot(generatorUri);
-        if (!projectRoot) throw new Error('Could not determine the AL project for the selected .g.xlf.');
+        if (!projectRoot) throw new Error(t("Could not determine the AL project for the selected .g.xlf."));
         const appJsonUri = vscode.Uri.joinPath(projectRoot, 'app.json');
         const app = parseAppSupportedLocales(await readText(appJsonUri));
         if (!app.supportedLocales.some(locale => normalizeLocale(locale) === normalizeLocale(targetLanguage))) {
-            throw new Error(`${targetLanguage} is no longer listed in app.json supportedLocales.`);
+            throw new Error(t("{0} is no longer listed in app.json supportedLocales.", targetLanguage));
         }
 
         const generatorText = await readText(generatorUri);
@@ -305,26 +306,26 @@ class TranslationDashboard {
         const generatorConfig = vscode.workspace.getConfiguration(CONFIG_SECTION, generatorUri);
         const generator = await getParsedDocumentSessionAsync(generatorSession, generatorText, async value => (await parseXliffAdaptive(value, generatorConfig)).parsed);
         if (normalizeLocale(generator.sourceLanguage) === normalizeLocale(targetLanguage)) {
-            throw new Error(`${targetLanguage} is the source language of the generated .g.xlf and does not require a translation XLIFF.`);
+            throw new Error(t("{0} is the source language of the generated .g.xlf and does not require a translation XLIFF.", targetLanguage));
         }
 
         const filename = translationFilenameForGenerator(generatorUri.fsPath, targetLanguage);
-        if (!filename) throw new Error('Could not determine the translation XLIFF filename.');
+        if (!filename) throw new Error(t("Could not determine the translation XLIFF filename."));
         const targetUri = vscode.Uri.file(path.join(path.dirname(generatorUri.fsPath), filename));
         if (await workspaceFileExists(targetUri)) {
-            vscode.window.showInformationMessage(`${BRAND_NAME}: ${filename} already exists.`);
+            vscode.window.showInformationMessage(t("{0}: {1} already exists.", BRAND_NAME, filename));
             await this.refresh();
             return;
         }
 
         const text = createTranslationXliffFromGenerator(generatorText, targetLanguage);
         await writeText(targetUri, text);
-        vscode.window.showInformationMessage(`${BRAND_NAME}: created ${filename} for ${targetLanguage}.`);
+        vscode.window.showInformationMessage(t("{0}: created {1} for {2}.", BRAND_NAME, filename, targetLanguage));
         await this.refresh();
     }
 
     async synchronizeAll() {
-        if (this.rowSyncs && this.rowSyncs.size) throw new Error('Wait for the selected XLIFF synchronization to finish.');
+        if (this.rowSyncs && this.rowSyncs.size) throw new Error(t("Wait for the selected XLIFF synchronization to finish."));
         if (this.syncController) this.syncController.abort('Superseded Sync all.');
         const controller = new AbortController();
         this.syncController = controller;
@@ -351,7 +352,7 @@ class TranslationDashboard {
             const uri = uris[index];
             await this.panel.webview.postMessage({
                 type: 'loading',
-                message: `Synchronizing ${path.basename(uri.fsPath)}`,
+                message: t("Synchronizing {0}", path.basename(uri.fsPath)),
                 current: index + 1,
                 total: uris.length
             });
@@ -384,13 +385,13 @@ class TranslationDashboard {
         }
 
         if (controller.signal.aborted) return;
-        const missingText = missingGenerators ? ` ${missingGenerators} file(s) had no unambiguous matching .g.xlf.` : '';
-        const failedText = failedFiles.length ? ` ${failedFiles.length} file(s) failed.` : '';
+        const missingText = missingGenerators ? t(" {0} file(s) had no unambiguous matching .g.xlf.", missingGenerators) : '';
+        const failedText = failedFiles.length ? t(" {0} file(s) failed.", failedFiles.length) : '';
         vscode.window.showInformationMessage(
-            `AL Xliff Studio: synchronized ${changedFiles} XLIFF file(s); ${alreadySynchronized} already synchronized; ${synchronizedSources} changed source(s), ${synchronizedDeveloperNotes} Developer note set(s) synchronized, ${synchronizedGeneratorNotes} Xliff Generator note set(s) synchronized, ${addedUnits} missing unit(s) added, ${flaggedTargets} target(s) flagged for review, ${removedUnits} obsolete unit(s) removed; ${updatedMaps} companion .lng file(s) updated.${missingText}${failedText}`
+            t("AL Xliff Studio: synchronized {0} XLIFF file(s); {1} already synchronized; {2} changed source(s), {3} Developer note set(s) synchronized, {4} Xliff Generator note set(s) synchronized, {5} missing unit(s) added, {6} target(s) flagged for review, {7} obsolete unit(s) removed; {8} companion .lng file(s) updated.{9}{10}", changedFiles, alreadySynchronized, synchronizedSources, synchronizedDeveloperNotes, synchronizedGeneratorNotes, addedUnits, flaggedTargets, removedUnits, updatedMaps, missingText, failedText)
         );
         if (failedFiles.length) {
-            vscode.window.showWarningMessage(`AL Xliff Studio sync errors: ${failedFiles.slice(0, 3).join(' | ')}${failedFiles.length > 3 ? ' …' : ''}`);
+            vscode.window.showWarningMessage(t("AL Xliff Studio sync errors: {0}{1}", failedFiles.slice(0, 3).join(' | '), failedFiles.length > 3 ? ' …' : ''));
         }
 
         await this.refresh();
@@ -402,12 +403,12 @@ class TranslationDashboard {
     getHtml(webview) {
         const nonce = String(Date.now());
         return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${uiLanguage()}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<title>${BRAND_NAME} — Translation Dashboard</title>
+<title>${BRAND_NAME} — ${htmlText("Translation Dashboard")}</title>
 <style>
 ${iconStyles(webview, this.context && this.context.extensionUri)}
 *{box-sizing:border-box} body{margin:0;padding:0;background:var(--vscode-editor-background);color:var(--vscode-foreground);font-family:var(--vscode-font-family)}
@@ -434,29 +435,29 @@ button,input{font:inherit;color:var(--vscode-input-foreground);background:var(--
 </style>
 </head>
 <body>
-<header><div class="title-row"><div><div class="title">Translation Dashboard</div><div class="subtitle">Project-wide XLIFF status for AL / Business Central</div></div><button id="glossary" title="Open project terminology glossary">T Glossary</button><button id="aiUsage" title="Open persistent AI usage statistics">AI Usage</button><button id="syncAll" title="Synchronize all translation XLIFFs with their matching .g.xlf">⇄ Sync all XLIFFs</button><button id="refresh" title="Rescan translation files">↻ Refresh</button></div></header>
+<header><div class="title-row"><div><div class="title">${htmlText("Translation Dashboard")}</div><div class="subtitle">${htmlText("Project-wide XLIFF status for AL / Business Central")}</div></div><button id="glossary" title="${htmlText("Open project terminology glossary")}">${htmlText("T Glossary")}</button><button id="aiUsage" title="${htmlText("Open persistent AI usage statistics")}">${htmlText("AI Usage")}</button><button id="syncAll" title="${htmlText("Synchronize all translation XLIFFs with their matching .g.xlf")}">${htmlText("⇄ Sync all XLIFFs")}</button><button id="refresh" title="${htmlText("Rescan translation files")}">${htmlText("↻ Refresh")}</button></div></header>
 <section class="summary" id="summary"></section>
-<div class="toolbar"><input id="search" placeholder="Filter by project, file or language…"><span class="meta" id="refreshMeta"></span></div>
-<div class="table-wrap"><table><thead><tr><th class="col-project" style="width:11%">Project</th><th style="width:20%">XLIFF</th><th style="width:78px">Actions</th><th style="width:9%">Language</th><th style="width:10%">Sync</th><th style="width:16%">Completion</th><th class="number" style="width:8%">Translated</th><th class="number" style="width:8%">Missing</th><th class="number" style="width:8%">Review</th><th class="number" style="width:8%">Quality</th></tr></thead><tbody id="rows"></tbody></table><div id="empty" class="empty" style="display:none"></div></div>
-<div id="loading" class="loading hidden" role="status" aria-live="polite" aria-label="Background activity"><div class="loading-card"><div id="loadingTitle" class="loading-title">Loading dashboard</div><div id="loadingCount" class="loading-count">Working…</div><div class="loading-track"><div id="loadingBar" class="loading-bar"></div></div></div></div>
+<div class="toolbar"><input id="search" placeholder="${htmlText("Filter by project, file or language…")}"><span class="meta" id="refreshMeta"></span></div>
+<div class="table-wrap"><table><thead><tr><th class="col-project" style="width:11%">${htmlText("Project")}</th><th style="width:20%">XLIFF</th><th style="width:78px">${htmlText("Actions")}</th><th style="width:9%">${htmlText("Language")}</th><th style="width:10%">${htmlText("Sync")}</th><th style="width:16%">${htmlText("Completion")}</th><th class="number" style="width:8%">${htmlText("Translated")}</th><th class="number" style="width:8%">${htmlText("Missing")}</th><th class="number" style="width:8%">${htmlText("Review")}</th><th class="number" style="width:8%">${htmlText("Quality")}</th></tr></thead><tbody id="rows"></tbody></table><div id="empty" class="empty" style="display:none"></div></div>
+<div id="loading" class="loading hidden" role="status" aria-live="polite" aria-label="${htmlText("Background activity")}"><div class="loading-card"><div id="loadingTitle" class="loading-title">${htmlText("Loading dashboard")}</div><div id="loadingCount" class="loading-count">${htmlText("Working…")}</div><div class="loading-track"><div id="loadingBar" class="loading-bar"></div></div></div></div>
 <script nonce="${nonce}">
 const vscode=acquireVsCodeApi();let model={files:[],summary:{}};const rowBusy=new Set();const rowErrors=new Map();const rows=document.getElementById('rows');const search=document.getElementById('search');const empty=document.getElementById('empty');const loading=document.getElementById('loading');
 function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function card(value,label){const display=typeof value==='number'&&Number.isFinite(value)?value.toLocaleString():String(value==null?'':value);return '<div class="card"><div class="value">'+esc(display)+'</div><div class="label">'+esc(label)+'</div></div>';}
-function renderSummary(){const s=model.summary||{};document.getElementById('summary').innerHTML=card(s.files,'XLIFF files')+card(s.languages,'Languages')+card((s.percent||0)+'%','Translated')+card(s.total,'Translation units')+card(s.missing,'Missing')+card(s.review,'Review')+card(s.placeholderErrors,'Placeholder errors')+card(s.qualityIssues,'Quality issues')+card(s.missingXliffFiles||0,'Locales missing XLIFF');}
-function metricButton(file,value,filter,css,title){const n=Number(value)||0;if(!n)return '<button class="metric zero" disabled>0</button>';return '<button class="metric '+(css||'')+'" data-open="'+esc(file.uri)+'" data-filter="'+esc(filter)+'" title="'+esc(title||'Open in XLIFF editor')+'">'+n.toLocaleString()+'</button>';}
-function syncStatus(file){const status=String(file.syncStatus||'error');const labels={synced:'✓ Synced','out-of-sync':'⇄ Out of sync','missing-generator':'— No .g.xlf','missing-file':'○ Not created',error:'! Error'};return '<span class="sync-status '+esc(status)+'" title="'+esc(file.syncDetails||'')+'">'+esc(labels[status]||status)+'</span>';}
-function rowActions(file){return '<div class="row-actions"><button data-wizard="'+esc(file.uri)+'" title="Open Guided Translation for '+esc(file.targetLanguage)+'" aria-label="Open Wizard for '+esc(file.targetLanguage)+'"><span class="codicon" aria-hidden="true">&#xebcf;</span></button><button data-open="'+esc(file.uri)+'" data-filter="all" title="Open XLIFF Editor for '+esc(file.targetLanguage)+'" aria-label="Open XLIFF Editor for '+esc(file.targetLanguage)+'"><span class="codicon" aria-hidden="true">&#xea73;</span></button></div>';}
-function rowSync(file){const busy=rowBusy.has(file.uri);return (file.syncStatus==='out-of-sync'?'<button class="row-sync" data-sync="'+esc(file.uri)+'" '+(busy?'disabled aria-busy="true"':'')+' title="Synchronize only '+esc(file.fileName)+'" aria-label="Synchronize '+esc(file.targetLanguage)+'"><span aria-hidden="true">⇄</span> '+(busy?'Syncing…':'Sync')+'</button>':'')+(rowErrors.has(file.uri)?'<div class="error-text" role="status">'+esc(rowErrors.get(file.uri))+'</div>':'');}
-function fileRow(file){if(file.kind==='missing-locale'){const canGenerate=Boolean(file.generateAvailable&&file.generatorUri);const action=canGenerate?'<button class="generate-xlf" data-generate="1" data-generator="'+esc(file.generatorUri)+'" data-locale="'+esc(file.targetLanguage)+'" title="Create an untranslated XLIFF from the generated .g.xlf">＋ Generate XLIFF</button>':'<div class="path">Compile the AL project first to create an unambiguous .g.xlf.</div>';return '<tr class="missing-locale-row"><td class="col-project">'+esc(file.project||'—')+'</td><td><div class="file">'+esc(file.fileName||'Translation XLIFF')+'</div><div class="path">'+esc(file.relativePath||'')+'</div><div class="warning">Listed in app.json supportedLocales</div></td><td><span class="meta">Create XLIFF first</span></td><td class="language">'+esc(file.sourceLanguage||'—')+' → '+esc(file.targetLanguage||'—')+'</td><td>'+syncStatus(file)+action+'</td><td><span class="meta">Not generated</span></td><td class="number">—</td><td class="number">—</td><td class="number">—</td><td class="number">—</td></tr>';}if(file.error)return '<tr><td class="col-project">'+esc(file.project)+'</td><td><div class="file">'+esc(file.fileName)+'</div><div class="path">'+esc(file.relativePath)+'</div><div class="error-text">'+esc(file.error)+'</div></td><td colspan="8"></td></tr>';const m=file.metrics||{};const warn=m.structuralWarnings?'<div class="warning">'+m.structuralWarnings+' structural warning(s)</div>':'';return '<tr><td class="col-project">'+esc(file.project||'—')+'</td><td><button class="metric file" data-open="'+esc(file.uri)+'" data-filter="all">'+esc(file.fileName)+'</button><div class="path">'+esc(file.relativePath)+'</div>'+warn+'</td><td>'+rowActions(file)+'</td><td class="language">'+esc(file.sourceLanguage||'—')+' → '+esc(file.targetLanguage||'—')+'</td><td>'+syncStatus(file)+rowSync(file)+'</td><td><div class="completion"><span>'+esc((m.percent||0)+'%')+'</span><span>'+esc((m.translated||0)+' / '+(m.total||0))+'</span></div><div class="progress-shell"><div class="progress-bar" style="width:'+Math.max(0,Math.min(100,Number(m.percent)||0))+'%"></div></div></td><td class="number">'+metricButton(file,m.translated,'translated','','Show translated entries')+'</td><td class="number">'+metricButton(file,m.missing,'missing','problem','Show missing entries')+'</td><td class="number">'+metricButton(file,m.review,'review','problem','Show review entries')+'</td><td class="number">'+metricButton(file,m.qualityIssues,'quality',m.qualityErrors?'error-count':'problem','Show quality issues')+'</td></tr>';}
+function renderSummary(){const s=model.summary||{};document.getElementById('summary').innerHTML=card(s.files,${scriptString("XLIFF files")})+card(s.languages,${scriptString("Languages")})+card((s.percent||0)+'%',${scriptString("Translated")})+card(s.total,${scriptString("Translation units")})+card(s.missing,${scriptString("Missing")})+card(s.review,${scriptString("Review")})+card(s.placeholderErrors,${scriptString("Placeholder errors")})+card(s.qualityIssues,${scriptString("Quality issues")})+card(s.missingXliffFiles||0,${scriptString("Locales missing XLIFF")});}
+function metricButton(file,value,filter,css,title){const n=Number(value)||0;if(!n)return '<button class="metric zero" disabled>0</button>';return '<button class="metric '+(css||'')+'" data-open="'+esc(file.uri)+'" data-filter="'+esc(filter)+'" title="'+esc(title||${scriptString("Open in XLIFF editor")})+'">'+n.toLocaleString()+'</button>';}
+function syncStatus(file){const status=String(file.syncStatus||'error');const labels={synced:${scriptString("✓ Synced")},'out-of-sync':${scriptString("⇄ Out of sync")},'missing-generator':${scriptString("— No .g.xlf")},'missing-file':${scriptString("○ Not created")},error:${scriptString("! Error")}};return '<span class="sync-status '+esc(status)+'" title="'+esc(file.syncDetails||'')+'">'+esc(labels[status]||status)+'</span>';}
+function rowActions(file){return '<div class="row-actions"><button data-wizard="'+esc(file.uri)+'" title="${htmlText("Open Guided Translation for ")}'+esc(file.targetLanguage)+'" aria-label="${htmlText("Open Wizard for ")}'+esc(file.targetLanguage)+'"><span class="codicon" aria-hidden="true">&#xebcf;</span></button><button data-open="'+esc(file.uri)+'" data-filter="all" title="${htmlText("Open XLIFF Editor for ")}'+esc(file.targetLanguage)+'" aria-label="${htmlText("Open XLIFF Editor for ")}'+esc(file.targetLanguage)+'"><span class="codicon" aria-hidden="true">&#xea73;</span></button></div>';}
+function rowSync(file){const busy=rowBusy.has(file.uri);return (file.syncStatus==='out-of-sync'?'<button class="row-sync" data-sync="'+esc(file.uri)+'" '+(busy?'disabled aria-busy="true"':'')+' title="${htmlText("Synchronize only ")}'+esc(file.fileName)+'" aria-label="${htmlText("Synchronize ")}'+esc(file.targetLanguage)+'"><span aria-hidden="true">⇄</span> '+(busy?${scriptString("Syncing…")}:${scriptString("Sync")})+'</button>':'')+(rowErrors.has(file.uri)?'<div class="error-text" role="status">'+esc(rowErrors.get(file.uri))+'</div>':'');}
+function fileRow(file){if(file.kind==='missing-locale'){const canGenerate=Boolean(file.generateAvailable&&file.generatorUri);const action=canGenerate?'<button class="generate-xlf" data-generate="1" data-generator="'+esc(file.generatorUri)+'" data-locale="'+esc(file.targetLanguage)+'" title="${htmlText("Create an untranslated XLIFF from the generated .g.xlf")}">${htmlText("＋ Generate XLIFF")}</button>':'<div class="path">${htmlText("Compile the AL project first to create an unambiguous .g.xlf.")}</div>';return '<tr class="missing-locale-row"><td class="col-project">'+esc(file.project||'—')+'</td><td><div class="file">'+esc(file.fileName||${scriptString("Translation XLIFF")})+'</div><div class="path">'+esc(file.relativePath||'')+'</div><div class="warning">${htmlText("Listed in app.json supportedLocales")}</div></td><td><span class="meta">${htmlText("Create XLIFF first")}</span></td><td class="language">'+esc(file.sourceLanguage||'—')+' → '+esc(file.targetLanguage||'—')+'</td><td>'+syncStatus(file)+action+'</td><td><span class="meta">${htmlText("Not generated")}</span></td><td class="number">—</td><td class="number">—</td><td class="number">—</td><td class="number">—</td></tr>';}if(file.error)return '<tr><td class="col-project">'+esc(file.project)+'</td><td><div class="file">'+esc(file.fileName)+'</div><div class="path">'+esc(file.relativePath)+'</div><div class="error-text">'+esc(file.error)+'</div></td><td colspan="8"></td></tr>';const m=file.metrics||{};const warn=m.structuralWarnings?'<div class="warning">'+m.structuralWarnings+' structural warning(s)</div>':'';return '<tr><td class="col-project">'+esc(file.project||'—')+'</td><td><button class="metric file" data-open="'+esc(file.uri)+'" data-filter="all">'+esc(file.fileName)+'</button><div class="path">'+esc(file.relativePath)+'</div>'+warn+'</td><td>'+rowActions(file)+'</td><td class="language">'+esc(file.sourceLanguage||'—')+' → '+esc(file.targetLanguage||'—')+'</td><td>'+syncStatus(file)+rowSync(file)+'</td><td><div class="completion"><span>'+esc((m.percent||0)+'%')+'</span><span>'+esc((m.translated||0)+' / '+(m.total||0))+'</span></div><div class="progress-shell"><div class="progress-bar" style="width:'+Math.max(0,Math.min(100,Number(m.percent)||0))+'%"></div></div></td><td class="number">'+metricButton(file,m.translated,'translated','',${scriptString("Show translated entries")})+'</td><td class="number">'+metricButton(file,m.missing,'missing','problem',${scriptString("Show missing entries")})+'</td><td class="number">'+metricButton(file,m.review,'review','problem',${scriptString("Show review entries")})+'</td><td class="number">'+metricButton(file,m.qualityIssues,'quality',m.qualityErrors?'error-count':'problem',${scriptString("Show quality issues")})+'</td></tr>';}
 
-function render(){renderSummary();const q=String(search.value||'').toLowerCase();const visible=(model.files||[]).filter(f=>!q||[f.project,f.relativePath,f.fileName,f.sourceLanguage,f.targetLanguage,f.syncStatus].join(' ').toLowerCase().includes(q));rows.innerHTML=visible.map(fileRow).join('');empty.style.display=visible.length?'none':'block';empty.textContent=(model.files||[]).length?'No files match the filter.':'No translation XLIFF files found.';}
+function render(){renderSummary();const q=String(search.value||'').toLowerCase();const visible=(model.files||[]).filter(f=>!q||[f.project,f.relativePath,f.fileName,f.sourceLanguage,f.targetLanguage,f.syncStatus].join(' ').toLowerCase().includes(q));rows.innerHTML=visible.map(fileRow).join('');empty.style.display=visible.length?'none':'block';empty.textContent=(model.files||[]).length?${scriptString("No files match the filter.")}:${scriptString("No translation XLIFF files found.")};}
 let loadingShowTimer=null,loadingRequested=false;
 function hideLoading(){loadingRequested=false;if(loadingShowTimer){clearTimeout(loadingShowTimer);loadingShowTimer=null;}loading.classList.add('hidden');loading.classList.remove('indeterminate');}
-function setLoading(message,current,total){document.getElementById('syncAll').disabled=true;document.getElementById('refresh').disabled=true;const t=Math.max(0,Number(total)||0),c=Math.max(0,Math.min(t||Number(current)||0,Number(current)||0));document.getElementById('loadingTitle').textContent=message||'Loading dashboard';document.getElementById('loadingCount').textContent=t?c.toLocaleString()+' / '+t.toLocaleString()+' files':'Working…';loading.classList.toggle('indeterminate',t<=0);document.getElementById('loadingBar').style.width=(t?Math.max(0,Math.min(100,Math.round(c/t*100))):0)+'%';loadingRequested=true;if(!loading.classList.contains('hidden')||loadingShowTimer)return;loadingShowTimer=setTimeout(()=>{loadingShowTimer=null;if(loadingRequested)loading.classList.remove('hidden');},300);}
+function setLoading(message,current,total){document.getElementById('syncAll').disabled=true;document.getElementById('refresh').disabled=true;const t=Math.max(0,Number(total)||0),c=Math.max(0,Math.min(t||Number(current)||0,Number(current)||0));document.getElementById('loadingTitle').textContent=message||${scriptString("Loading dashboard")};document.getElementById('loadingCount').textContent=t?c.toLocaleString()+' / '+t.toLocaleString()+${scriptString(" files")}:${scriptString("Working…")};loading.classList.toggle('indeterminate',t<=0);document.getElementById('loadingBar').style.width=(t?Math.max(0,Math.min(100,Math.round(c/t*100))):0)+'%';loadingRequested=true;if(!loading.classList.contains('hidden')||loadingShowTimer)return;loadingShowTimer=setTimeout(()=>{loadingShowTimer=null;if(loadingRequested)loading.classList.remove('hidden');},300);}
 document.getElementById('refresh').addEventListener('click',()=>vscode.postMessage({type:'refresh'}));document.getElementById('syncAll').addEventListener('click',()=>vscode.postMessage({type:'syncAll'}));document.getElementById('glossary').addEventListener('click',()=>vscode.postMessage({type:'openGlossary'}));document.getElementById('aiUsage').addEventListener('click',()=>vscode.postMessage({type:'openAiUsage'}));search.addEventListener('input',render);rows.addEventListener('click',e=>{const wizard=e.target.closest('[data-wizard]');if(wizard){vscode.postMessage({type:'openWizard',uri:wizard.dataset.wizard});return;}const sync=e.target.closest('[data-sync]');if(sync){const uri=sync.dataset.sync;if(!rowBusy.has(uri)){rowBusy.add(uri);rowErrors.delete(uri);updateRow(uri);vscode.postMessage({type:'syncFile',uri});}return;}const generate=e.target.closest('[data-generate]');if(generate){vscode.postMessage({type:'generateLocale',generatorUri:generate.dataset.generator,targetLanguage:generate.dataset.locale});return;}const b=e.target.closest('[data-open]');if(b)vscode.postMessage({type:'openFile',uri:b.dataset.open,filter:b.dataset.filter||'all'});});
 function updateRow(uri){const index=(model.files||[]).findIndex(file=>file.uri===uri);if(index<0)return;const file=model.files[index];const buttons=rows.querySelectorAll('[data-wizard]');for(const button of buttons){if(button.dataset.wizard===uri){const row=button.closest('tr');const focused=row.contains(document.activeElement);row.outerHTML=fileRow(file);if(focused){for(const next of rows.querySelectorAll('[data-wizard]')){if(next.dataset.wizard===uri)next.focus();}}break;}}}
-window.addEventListener('message',e=>{const msg=e.data;if(msg.type==='rowSync'){if(msg.busy){rowBusy.add(msg.uri);rowErrors.delete(msg.uri);}else rowBusy.delete(msg.uri);if(msg.error)rowErrors.set(msg.uri,msg.error);document.getElementById('syncAll').disabled=rowBusy.size>0;document.getElementById('refresh').disabled=rowBusy.size>0;updateRow(msg.uri);}else if(msg.type==='dashboardFile'){const index=model.files.findIndex(file=>file.uri===msg.file.uri);if(index>=0)model.files[index]=msg.file;model.summary={...msg.summary,languages:model.summary.languages,missingXliffFiles:model.summary.missingXliffFiles};renderSummary();updateRow(msg.file.uri);document.getElementById('refreshMeta').textContent='Refreshed '+msg.refreshedAt;}else if(msg.type==='loading'){setLoading(msg.message,msg.current,msg.total);}else if(msg.type==='dashboard'){model=msg;document.getElementById('refreshMeta').textContent='Refreshed '+(msg.refreshedAt||'');document.getElementById('syncAll').disabled=rowBusy.size>0;document.getElementById('refresh').disabled=rowBusy.size>0;hideLoading();render();}else if(msg.type==='error'){document.getElementById('syncAll').disabled=rowBusy.size>0;document.getElementById('refresh').disabled=rowBusy.size>0;hideLoading();empty.style.display='block';empty.textContent=msg.message||'Dashboard error.';}});vscode.postMessage({type:'ready'});
+window.addEventListener('message',e=>{const msg=e.data;if(msg.type==='rowSync'){if(msg.busy){rowBusy.add(msg.uri);rowErrors.delete(msg.uri);}else rowBusy.delete(msg.uri);if(msg.error)rowErrors.set(msg.uri,msg.error);document.getElementById('syncAll').disabled=rowBusy.size>0;document.getElementById('refresh').disabled=rowBusy.size>0;updateRow(msg.uri);}else if(msg.type==='dashboardFile'){const index=model.files.findIndex(file=>file.uri===msg.file.uri);if(index>=0)model.files[index]=msg.file;model.summary={...msg.summary,languages:model.summary.languages,missingXliffFiles:model.summary.missingXliffFiles};renderSummary();updateRow(msg.file.uri);document.getElementById('refreshMeta').textContent=${scriptString("Refreshed ")}+msg.refreshedAt;}else if(msg.type==='loading'){setLoading(msg.message,msg.current,msg.total);}else if(msg.type==='dashboard'){model=msg;document.getElementById('refreshMeta').textContent=${scriptString("Refreshed ")}+(msg.refreshedAt||'');document.getElementById('syncAll').disabled=rowBusy.size>0;document.getElementById('refresh').disabled=rowBusy.size>0;hideLoading();render();}else if(msg.type==='error'){document.getElementById('syncAll').disabled=rowBusy.size>0;document.getElementById('refresh').disabled=rowBusy.size>0;hideLoading();empty.style.display='block';empty.textContent=msg.message||${scriptString("Dashboard error.")};}});vscode.postMessage({type:'ready'});
 </script>
 </body></html>`;
     }
@@ -466,7 +467,7 @@ window.addEventListener('message',e=>{const msg=e.data;if(msg.type==='rowSync'){
 // Resource checks cover unsaved documents as well as on-disk changes during worker work.
 async function synchronizeTranslationFile(uri, controller = new AbortController()) {
     const key = uri.toString();
-    if (synchronizationTasks.has(key)) throw new Error('This XLIFF is already being synchronized.');
+    if (synchronizationTasks.has(key)) throw new Error(t("This XLIFF is already being synchronized."));
     synchronizationTasks.add(key);
     const config = vscode.workspace.getConfiguration(CONFIG_SECTION, uri);
     const resources = new Set([uri.toString()]);
@@ -488,7 +489,7 @@ async function synchronizeTranslationFile(uri, controller = new AbortController(
         const result = await synchronizeXliffAdaptive(before, generatorText, config, { signal: controller.signal, resourceKey: uri.toString(), unitCount: parsed.units.length });
         const checkCurrent = async () => {
             if (controller.signal.aborted || await readText(uri) !== before || await readText(siblingUri) !== generatorText) {
-                throw new Error('Synchronization cancelled because the XLIFF or generator changed. Please retry.');
+                throw new Error(t("Synchronization cancelled because the XLIFF or generator changed. Please retry."));
             }
         };
         await checkCurrent();
@@ -555,13 +556,13 @@ async function findMissingSupportedLocaleRows(files) {
                     projectRoot: projectRootKey,
                     project: projectName,
                     relativePath,
-                    fileName: filename || `${locale} translation XLIFF`,
+                    fileName: filename || t("{0} translation XLIFF", locale),
                     sourceLanguage: generatorParsed ? generatorParsed.sourceLanguage || '' : '',
                     targetLanguage: locale,
                     syncStatus: 'missing-file',
                     syncDetails: generatorUri
-                        ? `${locale} is listed in app.json supportedLocales, but no translation XLIFF exists.`
-                        : `${locale} is listed in app.json supportedLocales, but no unambiguous Translations/*.g.xlf is available.`,
+                        ? t("{0} is listed in app.json supportedLocales, but no translation XLIFF exists.", locale)
+                        : t("{0} is listed in app.json supportedLocales, but no unambiguous Translations/*.g.xlf is available.", locale),
                     generatorUri: generatorUri ? generatorUri.toString() : '',
                     generateAvailable: Boolean(generatorUri),
                     metrics: emptyMetrics()
@@ -585,7 +586,7 @@ async function getSynchronizationState(uri, targetText, parsed) {
         if (!siblingUri) {
             return {
                 status: 'missing-generator',
-                details: 'No unambiguous matching .g.xlf was found next to this translation XLIFF.'
+                details: t("No unambiguous matching .g.xlf was found next to this translation XLIFF.")
             };
         }
 
@@ -595,22 +596,22 @@ async function getSynchronizationState(uri, targetText, parsed) {
         if (result.text === targetText) {
             return {
                 status: 'synced',
-                details: 'Synchronized with the matching .g.xlf.',
+                details: t("Synchronized with the matching .g.xlf."),
                 generatorUri: siblingUri.toString()
             };
         }
 
         const changes = [];
-        if (result.synchronizedSources) changes.push(`${result.synchronizedSources} changed source(s)`);
-        if (result.addedUnits) changes.push(`${result.addedUnits} missing unit(s)`);
-        if (result.flaggedTargets) changes.push(`${result.flaggedTargets} target(s) to flag for review`);
-        if (result.synchronizedDeveloperNotes) changes.push(`${result.synchronizedDeveloperNotes} Developer note set(s)`);
-        if (result.synchronizedGeneratorNotes) changes.push(`${result.synchronizedGeneratorNotes} Xliff Generator note set(s)`);
+        if (result.synchronizedSources) changes.push(t("{0} changed source(s)", result.synchronizedSources));
+        if (result.addedUnits) changes.push(t("{0} missing unit(s)", result.addedUnits));
+        if (result.flaggedTargets) changes.push(t("{0} target(s) to flag for review", result.flaggedTargets));
+        if (result.synchronizedDeveloperNotes) changes.push(t("{0} Developer note set(s)", result.synchronizedDeveloperNotes));
+        if (result.synchronizedGeneratorNotes) changes.push(t("{0} Xliff Generator note set(s)", result.synchronizedGeneratorNotes));
         if (!changes.length) changes.push('unit order or structure differs');
-        if (result.removedUnits.length) changes.push(`${result.removedUnits.length} obsolete unit(s) to remove`);
+        if (result.removedUnits.length) changes.push(t("{0} obsolete unit(s) to remove", result.removedUnits.length));
         return {
             status: 'out-of-sync',
-            details: `Not synchronized: ${changes.join(', ')}.`,
+            details: t("Not synchronized: {0}.", changes.join(', ')),
             generatorUri: siblingUri.toString()
         };
     } catch (err) {
@@ -678,12 +679,12 @@ async function writeText(uri, text) {
     const edit = new vscode.WorkspaceEdit();
     edit.replace(uri, new vscode.Range(openDocument.positionAt(0), openDocument.positionAt(openDocument.getText().length)), text);
     const applied = await vscode.workspace.applyEdit(edit);
-    if (!applied) throw new Error(`Could not apply synchronized changes to ${path.basename(uri.fsPath)}.`);
+    if (!applied) throw new Error(t("Could not apply synchronized changes to {0}.", path.basename(uri.fsPath)));
 }
 
 function formatError(err) {
     if (err instanceof Error) return err.message;
-    return String(err || 'Unknown error');
+    return String(err || t("Unknown error"));
 }
 
 function yieldToEventLoop() {

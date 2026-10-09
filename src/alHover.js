@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const vscode = require('vscode');
 const path = require('path');
@@ -198,7 +199,7 @@ function registerAlTranslationHover(context) {
             const markdown = new vscode.MarkdownString(undefined, true);
             markdown.supportThemeIcons = true;
             markdown.isTrusted = { enabledCommands: [commandId] };
-            markdown.appendMarkdown(`**${escapeMarkdown(BRAND_NAME)} translations**  \n`);
+            markdown.appendMarkdown(t("**{0} translations**  \n", escapeMarkdown(BRAND_NAME)));
             markdown.appendMarkdown(`\`${escapeInlineCode(target.source)}\`\n\n`);
 
             for (const item of translations) {
@@ -208,7 +209,7 @@ function registerAlTranslationHover(context) {
                     const ambiguity = item.ambiguous && item.matchCount > 1 ? ` · ${item.matchCount} matches` : '';
                     markdown.appendMarkdown(`[$(globe) ${escapeMarkdown(item.language)}](command:${commandId}?${args}) — ${status}${escapeMarkdown(ambiguity)}  \n`);
                 } else {
-                    markdown.appendMarkdown(`$(circle-slash) **${escapeMarkdown(item.language)}** — _not synchronized_  \n`);
+                    markdown.appendMarkdown(t("$(circle-slash) **{0}** — _not synchronized_  \n", escapeMarkdown(item.language)));
                 }
             }
 
@@ -241,9 +242,9 @@ function registerAlTranslationHover(context) {
 function formatTargetStatus(item) {
     const target = String(item.target || '').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     const state = String(item.state || '').trim();
-    if (!target) return state ? `_missing_ · \`${escapeInlineCode(state)}\`` : '_missing_';
+    if (!target) return state ? t("_missing_ · `{0}`", escapeInlineCode(state)) : t("_missing_");
     const shortened = target.length > 100 ? `${target.slice(0, 97)}…` : target;
-    return `${escapeMarkdown(shortened)}${state ? ` · \`${escapeInlineCode(state)}\`` : ' · `(no state)'}`;
+    return `${escapeMarkdown(shortened)}${state ? ` · \`${escapeInlineCode(state)}\`` : t(" · `(no state)")}`;
 }
 
 function escapeMarkdown(value) {

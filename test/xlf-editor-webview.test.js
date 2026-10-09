@@ -158,7 +158,7 @@ test('package contributes the visual XLIFF editor as default for xlf files', () 
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
     const editor = pkg.contributes.customEditors.find(item => item.viewType === 'alXliffStudio.xlfEditor');
     assert.ok(editor);
-    assert.equal(editor.displayName, 'AL Xliff Studio — XLIFF Editor');
+    assert.equal(require('../package.nls.json')[editor.displayName.slice(1,-1)], 'AL Xliff Studio — XLIFF Editor');
     assert.equal(editor.priority, 'default');
     assert.equal(editor.selector[0].filenamePattern, '*.xlf');
 });
@@ -667,7 +667,7 @@ test('fast accept asks the extension host to recompute filtered membership witho
 
 test('provenance setting suppresses editor provenance display and persistence hooks', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'xlfEditor.js'), 'utf8');
-    assert.match(source, /get\('provenance\.enabled', true\) !== false/);
+    assert.match(source, /get\('provenance\.enabled', false\) !== false/);
     assert.match(source, /provenanceEnabled: provenanceIsEnabled/);
     assert.match(source, /if \(!model\.provenanceEnabled\) return ''/);
     assert.match(source, /provenanceEnabled\(\) \? sanitizeProvenance/);
@@ -803,7 +803,7 @@ test('staged metadata never auto-saves the backing XLIFF from background staging
     assert.doesNotMatch(block[1], /document\.save\(\)/);
 });
 
-test('Apply and Discard remove persisted staging notes without applying proposal drafts implicitly', () => {
+test('Apply removes staging notes and Discard converts drafts back to proposals', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'xlfEditor.js'), 'utf8');
     const start = source.indexOf("if (message.type === 'saveManyDrafts') {");
     const end = source.indexOf("if (message.type === 'acceptMany') {", start);
@@ -815,7 +815,7 @@ test('Apply and Discard remove persisted staging notes without applying proposal
     const { XliffEditorProvider } = loadEditorWithVscodeStub();
     const provider = new XliffEditorProvider({});
     const html = provider.getHtml({ cspSource: 'vscode-webview://test' });
-    assert.match(html, /type:'clearStaged'/);
+    assert.match(html, /type:'draftsToProposals'/);
     assert.match(html, /cancelAllStagePersistence\(\)/);
     assert.match(html, /const items = dirtyRows\(\)\.map/);
 });
@@ -1008,7 +1008,7 @@ test('large XLIFF loads cancel stale preparation and distinguish editor transfer
     assert.match(source, /const abandonStaleSnapshot = async phase =>/);
     assert.match(source, /currentVersion !== snapshotVersion/);
     assert.match(source, /type: 'loadCancelled'/);
-    assert.match(source, /stage: 'Updating editor'/);
+    assert.match(source, /stage: t\("Updating editor"\)/);
     assert.match(source, /current: parsed\.units\.length/);
 });
 
