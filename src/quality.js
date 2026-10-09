@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const { parseNabTargetMarker, getDeveloperCommentTranslation } = require('./xliff');
 const { findDuplicateIds, findDuplicateGeneratorNotes } = require('./validate');
@@ -101,10 +102,10 @@ function analyzeXliffQuality(parsed, options = {}) {
     };
 
     for (const duplicate of findDuplicateIds(parsed)) {
-        add({ severity: 'error', code: 'duplicate-id', message: `Duplicate trans-unit id: ${duplicate}` });
+        add({ severity: 'error', code: 'duplicate-id', message: t("Duplicate trans-unit id: {0}", duplicate) });
     }
     for (const duplicate of findDuplicateGeneratorNotes(parsed)) {
-        add({ severity: 'error', code: 'duplicate-generator-note', message: `Duplicate Xliff Generator note: ${duplicate}` });
+        add({ severity: 'error', code: 'duplicate-generator-note', message: t("Duplicate Xliff Generator note: {0}", duplicate) });
     }
 
     const sourceToUnits = new Map();
@@ -121,13 +122,13 @@ function analyzeXliffQuality(parsed, options = {}) {
         if (checks.targetState) {
             const state = String(unit.targetState || '').trim().toLowerCase();
             if (!VALID_STATES.has(state)) {
-                add({ ...base, severity: 'warning', code: 'unknown-state', message: `Unknown target state: ${unit.targetState}` });
+                add({ ...base, severity: 'warning', code: 'unknown-state', message: t("Unknown target state: {0}", unit.targetState) });
             }
             if (['translated', 'signed-off', 'final'].includes(state) && !target) {
-                add({ ...base, severity: 'error', code: 'empty-final-target', message: `Target is empty although state is ${state}.` });
+                add({ ...base, severity: 'error', code: 'empty-final-target', message: t("Target is empty although state is {0}.", state) });
             }
             if (!state && target) {
-                add({ ...base, severity: 'warning', code: 'target-without-state', message: 'Target contains translation text but has no state. Review and accept it to set state=translated.' });
+                add({ ...base, severity: 'warning', code: 'target-without-state', message: t("Target contains translation text but has no state. Review and accept it to set state=translated.") });
             }
         }
 
@@ -138,7 +139,7 @@ function analyzeXliffQuality(parsed, options = {}) {
             if (suggestion.translation && !suggestion.conflict && target.normalize('NFC') !== suggestion.translation.normalize('NFC')) {
                 developerMismatchOrdinals.add(unit.ordinal);
                 add({ ...base, severity: 'warning', code: 'developer-comment-mismatch',
-                    message: `Translation differs from the Developer Note suggestion for ${parsed.targetLanguage}: “${suggestion.translation}”.` });
+                    message: t("Translation differs from the Developer Note suggestion for {0}: “{1}”.", parsed.targetLanguage, suggestion.translation) });
             }
         }
 
@@ -158,7 +159,7 @@ function analyzeXliffQuality(parsed, options = {}) {
                     ...base,
                     severity: 'error',
                     code: 'placeholder-mismatch',
-                    message: `Placeholder mismatch — expected: ${expected.length ? expected.join(', ') : '(none)'}; target: ${actual.length ? actual.join(', ') : '(none)'}.`
+                    message: t("Placeholder mismatch — expected: {0}; target: {1}.", expected.length ? expected.join(', ') : t("(none)"), actual.length ? actual.join(', ') : t("(none)"))
                 });
             }
         }
@@ -176,11 +177,11 @@ function analyzeXliffQuality(parsed, options = {}) {
         }
 
         if (checks.maxWidth && Number.isFinite(unit.maxWidth) && target.length > unit.maxWidth) {
-            add({ ...base, severity: 'warning', code: 'maxwidth', message: `Target length ${target.length} exceeds maxwidth ${unit.maxWidth}.` });
+            add({ ...base, severity: 'warning', code: 'maxwidth', message: t("Target length {0} exceeds maxwidth {1}.", target.length, unit.maxWidth) });
         }
 
         if (checks.sourceEqualsTarget && !sameLanguage(parsed.sourceLanguage, parsed.targetLanguage) && isLinguistic(source) && normalizeComparable(source) === normalizeComparable(target)) {
-            add({ ...base, severity: 'warning', code: 'source-equals-target', message: 'Source and target have the same text.' });
+            add({ ...base, severity: 'warning', code: 'source-equals-target', message: t("Source and target have the same text.") });
         }
 
         if (checks.whitespace) {
@@ -189,12 +190,12 @@ function analyzeXliffQuality(parsed, options = {}) {
             const sourceTrailing = trailingWhitespace(source);
             const targetTrailing = trailingWhitespace(target);
             if (sourceLeading !== targetLeading || sourceTrailing !== targetTrailing) {
-                add({ ...base, severity: 'warning', code: 'whitespace', message: 'Leading or trailing whitespace differs between source and target.' });
+                add({ ...base, severity: 'warning', code: 'whitespace', message: t("Leading or trailing whitespace differs between source and target.") });
             }
         }
 
         if (checks.repeatedWhitespace && hasUnexpectedRepeatedHorizontalWhitespace(source, target)) {
-            add({ ...base, severity: 'warning', code: 'repeated-whitespace', message: 'Target contains repeated spaces/tabs that are not present in the source.' });
+            add({ ...base, severity: 'warning', code: 'repeated-whitespace', message: t("Target contains repeated spaces/tabs that are not present in the source.") });
         }
 
         if (checks.punctuation) {
@@ -207,7 +208,7 @@ function analyzeXliffQuality(parsed, options = {}) {
                     ...base,
                     severity: 'warning',
                     code: 'punctuation',
-                    message: `Final punctuation differs — source ${sourcePunctuation ? `ends with “${sourcePunctuation}”` : 'has none'}; target ${targetPunctuation ? `ends with “${targetPunctuation}”` : 'has none'}.`
+                    message: t("Final punctuation differs — source {0}; target {1}.", sourcePunctuation ? t("ends with “{0}”", sourcePunctuation) : t("has none"), targetPunctuation ? t("ends with “{0}”", targetPunctuation) : t("has none"))
                 });
             }
         }
@@ -234,7 +235,7 @@ function analyzeXliffQuality(parsed, options = {}) {
         if (checks.copiedSourceTerms && isEnglish(parsed.sourceLanguage) && !isEnglish(parsed.targetLanguage)) {
             const copied = findCopiedEnglishTerms(source, target, options.englishAllowlist);
             if (copied.length) {
-                add({ ...base, severity: 'info', code: 'copied-source-term', message: `Possible untranslated English term(s): ${copied.join(', ')}.` });
+                add({ ...base, severity: 'info', code: 'copied-source-term', message: t("Possible untranslated English term(s): {0}.", copied.join(', ')) });
             }
         }
     }
@@ -252,7 +253,7 @@ function analyzeXliffQuality(parsed, options = {}) {
                     target: unit.target || '',
                     severity: 'warning',
                     code: 'inconsistent-source',
-                    message: `The same source has different targets: ${preview}${targets.length > 4 ? '…' : ''}`
+                    message: t("The same source has different targets: {0}{1}", preview, targets.length > 4 ? '…' : '')
                 });
             }
         }
@@ -273,7 +274,7 @@ function analyzeXliffQuality(parsed, options = {}) {
                     target,
                     severity: 'info',
                     code: 'shared-target',
-                    message: `The same target is used for different sources: ${preview}${sources.length > 3 ? '…' : ''}`
+                    message: t("The same target is used for different sources: {0}{1}", preview, sources.length > 3 ? '…' : '')
                 });
             }
         }
@@ -449,8 +450,8 @@ function compareFormattingSequences(source, target) {
     };
     const expected = signature(source), actual = signature(target);
     if (expected.lineBreaks === actual.lineBreaks && expected.backslashes === actual.backslashes) return '';
-    const describe = item => `${item.lineBreaks} line break(s), ${item.backslashes} backslash(es)`;
-    return `Formatting sequences differ — source: ${describe(expected)}; target: ${describe(actual)}.`;
+    const describe = item => t("{0} line break(s), {1} backslash(es)", item.lineBreaks, item.backslashes);
+    return t("Formatting sequences differ — source: {0}; target: {1}.", describe(expected), describe(actual));
 }
 
 function hasUnexpectedRepeatedHorizontalWhitespace(source, target) {
@@ -464,7 +465,7 @@ function strongLengthDeviation(source, target) {
     if (sourceLength < 12 || targetLength < 1) return '';
     const ratio = targetLength / sourceLength;
     if (ratio >= 0.4 && ratio <= 2.5) return '';
-    return `Target length differs unusually strongly from source (${sourceLength} → ${targetLength} characters, ${ratio.toFixed(2)}×).`;
+    return t("Target length differs unusually strongly from source ({0} → {1} characters, {2}×).", sourceLength, targetLength, ratio.toFixed(2));
 }
 
 function linguisticLength(value) {
@@ -477,13 +478,13 @@ function linguisticLength(value) {
 function findNabResidue(unit, target) {
     const text = String(target || '');
     if (/\[NAB\s*:/i.test(text) || (/\bNAB\s*:/i.test(text) && !parseNabTargetMarker(text))) {
-        return 'Target still contains a NAB workflow marker or malformed NAB marker.';
+        return t("Target still contains a NAB workflow marker or malformed NAB marker.");
     }
     const state = String(unit && unit.targetState || '').trim().toLowerCase();
     const completed = ['translated', 'signed-off', 'final'].includes(state);
     const hasNabNote = Boolean(unit && Array.isArray(unit.noteDetails) && unit.noteDetails.some(note => String(note.from || '').trim().toLowerCase() === 'nab al tools'));
     if (completed && !unit.nabMarker && hasNabNote) {
-        return 'Completed translation still contains a NAB AL Tools workflow note.';
+        return t("Completed translation still contains a NAB AL Tools workflow note.");
     }
     return '';
 }

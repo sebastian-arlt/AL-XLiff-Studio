@@ -1,4 +1,5 @@
 'use strict';
+const { t, htmlText, scriptString, uiLanguage } = require('./localization');
 
 const vscode = require('vscode');
 const { setTabIcon } = require('./tabIcons');
@@ -80,9 +81,9 @@ class GlossaryEditorProvider {
     getHtml(webview) {
         const nonce = String(Date.now());
         return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<html lang="${uiLanguage()}"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<title>AL Xliff Studio — Terminology Glossary</title>
+<title>${htmlText("AL Xliff Studio — Terminology Glossary")}</title>
 <style>
 *{box-sizing:border-box}body{padding:0;margin:0;color:var(--vscode-foreground);background:var(--vscode-editor-background);font-family:var(--vscode-font-family)}
 .toolbar{position:sticky;top:0;z-index:3;display:flex;gap:8px;align-items:center;padding:10px 12px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border)}
@@ -94,19 +95,19 @@ table{width:100%;border-collapse:collapse;table-layout:fixed}th{position:sticky;
 td input,td select{width:100%;background:transparent;border-color:transparent}td input:focus,td select:focus{background:var(--vscode-input-background);border-color:var(--vscode-focusBorder);outline:none}
 .c-source{width:18%}.c-language{width:9%}.c-translation{width:18%}.c-match{width:8%}.c-case{width:6%;text-align:center}.c-quality{width:16%}.c-note{width:18%}.c-actions{width:7%;text-align:center}.actions{display:flex;gap:4px;justify-content:center}.actions button{min-width:30px;padding:4px}.hidden{display:none}.casebox{display:flex;justify-content:center;padding-top:6px}
 </style></head><body>
-<div class="toolbar"><input id="search" type="search" placeholder="Filter terminology..."><select id="language"><option value="">All languages</option></select><button id="add">+ Add term</button><button id="sort">↕ Sort</button><span class="meta" id="meta"></span></div>
+<div class="toolbar"><input id="search" type="search" placeholder="${htmlText("Filter terminology...")}"><select id="language"><option value="">${htmlText("All languages")}</option></select><button id="add">${htmlText("+ Add term")}</button><button id="sort">${htmlText("↕ Sort")}</button><span class="meta" id="meta"></span></div>
 <div class="error" id="error"></div>
-<table><thead><tr><th class="c-source">Source term</th><th class="c-language">Language</th><th class="c-translation">Required translation</th><th class="c-match">Match</th><th class="c-case">Case</th><th class="c-quality">Quality exceptions</th><th class="c-note">Note</th><th class="c-actions"></th></tr></thead><tbody id="rows"></tbody></table>
+<table><thead><tr><th class="c-source">${htmlText("Source term")}</th><th class="c-language">${htmlText("Language")}</th><th class="c-translation">${htmlText("Required translation")}</th><th class="c-match">${htmlText("Match")}</th><th class="c-case">${htmlText("Case")}</th><th class="c-quality">${htmlText("Quality exceptions")}</th><th class="c-note">${htmlText("Note")}</th><th class="c-actions"></th></tr></thead><tbody id="rows"></tbody></table>
 <script nonce="${nonce}">
 const vscode=acquireVsCodeApi();let entries=[];const rows=document.getElementById('rows'),search=document.getElementById('search'),language=document.getElementById('language'),meta=document.getElementById('meta'),errorBox=document.getElementById('error');
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function commit(){vscode.postMessage({type:'replace',entries});}
 function languages(){return [...new Set(entries.map(e=>e.targetLanguage).filter(Boolean))].sort((a,b)=>a.localeCompare(b));}
-function render(){const q=search.value.toLocaleLowerCase(),lang=language.value;const old=lang;language.innerHTML='<option value="">All languages</option>'+languages().map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');if(languages().includes(old))language.value=old;let visible=0;rows.innerHTML=entries.map((e,i)=>{const quality=(e.qualityIgnore||[]).join(', ');const hay=(e.source+' '+e.targetLanguage+' '+e.translation+' '+quality+' '+(e.note||'')).toLocaleLowerCase();const show=(!q||hay.includes(q))&&(!lang||e.targetLanguage===lang);if(show)visible++;return '<tr data-index="'+i+'" class="'+(show?'':'hidden')+'"><td><input data-field="source" value="'+esc(e.source)+'"></td><td><input data-field="targetLanguage" value="'+esc(e.targetLanguage)+'"></td><td><input data-field="translation" value="'+esc(e.translation)+'"></td><td><select data-field="match"><option value="word"'+(e.match==='word'?' selected':'')+'>word</option><option value="exact"'+(e.match==='exact'?' selected':'')+'>exact</option><option value="contains"'+(e.match==='contains'?' selected':'')+'>contains</option></select></td><td><div class="casebox"><input data-field="caseSensitive" type="checkbox"'+(e.caseSensitive?' checked':'')+'></div></td><td><input data-field="qualityIgnore" title="Comma-separated Quality Check codes to suppress when this glossary rule is satisfied, e.g. punctuation" placeholder="punctuation" value="'+esc(quality)+'"></td><td><input data-field="note" value="'+esc(e.note||'')+'"></td><td><div class="actions"><button data-action="search" title="Search source term in project">⌕</button><button data-action="delete" title="Delete term">×</button></div></td></tr>';}).join('');meta.textContent=visible+' / '+entries.length+' terms';}
+function render(){const q=search.value.toLocaleLowerCase(),lang=language.value;const old=lang;language.innerHTML='<option value="">${htmlText("All languages")}</option>'+languages().map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');if(languages().includes(old))language.value=old;let visible=0;rows.innerHTML=entries.map((e,i)=>{const quality=(e.qualityIgnore||[]).join(', ');const hay=(e.source+' '+e.targetLanguage+' '+e.translation+' '+quality+' '+(e.note||'')).toLocaleLowerCase();const show=(!q||hay.includes(q))&&(!lang||e.targetLanguage===lang);if(show)visible++;return '<tr data-index="'+i+'" class="'+(show?'':'hidden')+'"><td><input data-field="source" value="'+esc(e.source)+'"></td><td><input data-field="targetLanguage" value="'+esc(e.targetLanguage)+'"></td><td><input data-field="translation" value="'+esc(e.translation)+'"></td><td><select data-field="match"><option value="word"'+(e.match==='word'?' selected':'')+'>${htmlText("Whole word")}</option><option value="exact"'+(e.match==='exact'?' selected':'')+'>${htmlText("Exact text")}</option><option value="contains"'+(e.match==='contains'?' selected':'')+'>${htmlText("Contains text")}</option></select></td><td><div class="casebox"><input data-field="caseSensitive" type="checkbox"'+(e.caseSensitive?' checked':'')+'></div></td><td><input data-field="qualityIgnore" title="${htmlText("Comma-separated Quality Check codes to suppress when this glossary rule is satisfied, e.g. punctuation")}" placeholder="punctuation" value="'+esc(quality)+'"></td><td><input data-field="note" value="'+esc(e.note||'')+'"></td><td><div class="actions"><button data-action="search" title="${htmlText("Search source term in project")}">⌕</button><button data-action="delete" title="${htmlText("Delete term")}">×</button></div></td></tr>';}).join('');meta.textContent=visible+' / '+entries.length+${scriptString(" terms")};}
 rows.addEventListener('change',e=>{const tr=e.target.closest('tr');if(!tr)return;const i=Number(tr.dataset.index),field=e.target.dataset.field;if(!field)return;if(field==='caseSensitive')entries[i][field]=e.target.checked;else if(field==='qualityIgnore')entries[i][field]=String(e.target.value||'').split(',').map(v=>v.trim()).filter(Boolean);else entries[i][field]=e.target.value;commit();render();});
 rows.addEventListener('click',e=>{const b=e.target.closest('button[data-action]');if(!b)return;const tr=b.closest('tr'),i=Number(tr.dataset.index);if(b.dataset.action==='delete'){entries.splice(i,1);commit();render();}else if(b.dataset.action==='search'){vscode.postMessage({type:'searchSource',source:entries[i].source});}});
-search.addEventListener('input',render);language.addEventListener('change',render);document.getElementById('sort').addEventListener('click',()=>{entries.sort((a,b)=>a.targetLanguage.localeCompare(b.targetLanguage)||a.source.localeCompare(b.source));commit();render();});document.getElementById('add').addEventListener('click',()=>{const source=window.prompt('Source term or phrase');if(!source)return;const targetLanguage=window.prompt('Target language','de-DE');if(!targetLanguage)return;const translation=window.prompt('Required translation');if(!translation)return;entries.push({source:source,targetLanguage:targetLanguage,translation:translation,match:'word',caseSensitive:false,qualityIgnore:[],note:''});commit();render();});
-function showError(m){errorBox.textContent=m||'';errorBox.style.display=m?'block':'none'}window.addEventListener('message',e=>{const m=e.data;if(m.type==='document'){entries=m.entries||[];showError((m.errors||[]).join(String.fromCharCode(10)));render();}else if(m.type==='error')showError(m.message||'Invalid glossary.');});vscode.postMessage({type:'ready'});
+search.addEventListener('input',render);language.addEventListener('change',render);document.getElementById('sort').addEventListener('click',()=>{entries.sort((a,b)=>a.targetLanguage.localeCompare(b.targetLanguage)||a.source.localeCompare(b.source));commit();render();});document.getElementById('add').addEventListener('click',()=>{const source=window.prompt(${scriptString("Source term or phrase")});if(!source)return;const targetLanguage=window.prompt(${scriptString("Target language")},'de-DE');if(!targetLanguage)return;const translation=window.prompt(${scriptString("Required translation")});if(!translation)return;entries.push({source:source,targetLanguage:targetLanguage,translation:translation,match:'word',caseSensitive:false,qualityIgnore:[],note:''});commit();render();});
+function showError(m){errorBox.textContent=m||'';errorBox.style.display=m?'block':'none'}window.addEventListener('message',e=>{const m=e.data;if(m.type==='document'){entries=m.entries||[];showError((m.errors||[]).join(String.fromCharCode(10)));render();}else if(m.type==='error')showError(m.message||${scriptString("Invalid glossary.")});});vscode.postMessage({type:'ready'});
 </script></body></html>`;
     }
 }
@@ -171,7 +172,7 @@ async function resolveProjectGlossary(resourceUri, chooseWhenAmbiguous = false) 
                 description: uri.fsPath || uri.path,
                 uri
             })),
-            { placeHolder: 'Select the terminology glossary to migrate into .alxliffstudio' }
+            { placeHolder: t("Select the terminology glossary to migrate into .alxliffstudio") }
         );
         if (!pick) return { uri: undefined, folder, candidates: legacyCandidates, ambiguous: true };
         if (defaultUri) {
@@ -199,7 +200,7 @@ async function getProjectWorkspaceFolder(resourceUri, chooseWhenAmbiguous) {
     if (!folder && chooseWhenAmbiguous && folders.length > 1) {
         const pick = await vscode.window.showQuickPick(
             folders.map(item => ({ label: item.name, description: item.uri.fsPath, folder: item })),
-            { placeHolder: 'Select the project for the terminology glossary' }
+            { placeHolder: t("Select the project for the terminology glossary") }
         );
         folder = pick && pick.folder;
     }
@@ -287,7 +288,7 @@ async function addGlossaryEntry(resourceUri, entry) {
     const resolved = await resolveProjectGlossary(resourceUri, false);
     if (resolved.ambiguous) throw new Error(`Multiple terminology glossaries found. Open “Terminology Glossary” once to select one, or set ${CONFIG_SECTION}.glossary.path.`);
     const uri = resolved.uri;
-    if (!uri) throw new Error('No workspace folder is available for the terminology glossary.');
+    if (!uri) throw new Error(t("No workspace folder is available for the terminology glossary."));
     let parsed = { entries: [] };
     try {
         parsed = parseGlossary(await readWorkspaceText(uri));
@@ -297,7 +298,7 @@ async function addGlossaryEntry(resourceUri, entry) {
         if (vscode.workspace.fs.createDirectory) await vscode.workspace.fs.createDirectory(parent);
     }
     const normalized = normalizeEntries([entry])[0];
-    if (!normalized) throw new Error('Source term, target language and translation are required.');
+    if (!normalized) throw new Error(t("Source term, target language and translation are required."));
     const index = parsed.entries.findIndex(item => item.targetLanguage.toLocaleLowerCase() === normalized.targetLanguage.toLocaleLowerCase() && (item.caseSensitive ? item.source === normalized.source : item.source.toLocaleLowerCase() === normalized.source.toLocaleLowerCase()));
     if (index >= 0) parsed.entries[index] = normalized; else parsed.entries.push(normalized);
     await writeWorkspaceText(uri, serializeGlossary(parsed.entries));

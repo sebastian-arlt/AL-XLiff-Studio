@@ -1,4 +1,5 @@
 'use strict';
+const { localizeQualityReport } = require('./localization');
 
 const path = require('path');
 const { Worker } = require('worker_threads');
@@ -239,7 +240,7 @@ async function analyzeXliffQualityAdaptive(parsed, qualityOptions, sourceText, c
         // the worker and send only small ordinal overrides for draft previews.
         const report = await analyzeXliffQualityTextOffThread(sourceText, qualityOptions, options);
         if (typeof options.onPhase === 'function') options.onPhase('worker quality done', { issues: report && report.summary ? report.summary.total : undefined });
-        return { report, workerUsed: true, fallback: false };
+        return { report: localizeQualityReport(report), workerUsed: true, fallback: false };
     } catch (err) {
         if (isWorkerCancellation(err)) throw err;
         throwIfCancelled(options.signal);

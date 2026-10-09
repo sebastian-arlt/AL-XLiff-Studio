@@ -1,4 +1,5 @@
 'use strict';
+const { htmlText, scriptString, uiLanguage } = require('./localization');
 
 const vscode = require('vscode');
 const { setTabIcon } = require('./tabIcons');
@@ -83,12 +84,12 @@ class LanguageMapEditorProvider {
     getHtml(webview) {
         const nonce = String(Date.now());
         return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${uiLanguage()}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<title>BC Language Map</title>
+<title>${htmlText("BC Language Map")}</title>
 <style>
 body { padding: 0; color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); }
 .toolbar { position: sticky; top: 0; z-index: 2; display:flex; gap:8px; align-items:center; padding:10px 12px; background: var(--vscode-editor-background); border-bottom:1px solid var(--vscode-panel-border); }
@@ -113,15 +114,15 @@ td input:focus { border-color:var(--vscode-focusBorder); background:var(--vscode
 </head>
 <body>
 <div class="toolbar">
-  <input id="search" type="search" placeholder="Filter source or translation...">
-  <label class="toggle-filter"><input id="sameOnly" type="checkbox"> Source = Translation</label>
-  <button id="add">Add</button>
-  <button id="sort">Sort</button>
+  <input id="search" type="search" placeholder="${htmlText("Filter source or translation...")}">
+  <label class="toggle-filter"><input id="sameOnly" type="checkbox"> ${htmlText("Source = Translation")}</label>
+  <button id="add">${htmlText("Add")}</button>
+  <button id="sort">${htmlText("Sort")}</button>
   <span class="meta" id="meta"></span>
 </div>
 <div class="error" id="error"></div>
 <table>
-<thead><tr><th class="col-source">English source</th><th class="col-translation">Translation</th><th class="col-actions"></th></tr></thead>
+<thead><tr><th class="col-source">${htmlText("English source")}</th><th class="col-translation">${htmlText("Translation")}</th><th class="col-actions"></th></tr></thead>
 <tbody id="rows"></tbody>
 </table>
 <script nonce="${nonce}">
@@ -149,11 +150,11 @@ function render() {
       '<td><input class="source" value="' + esc(entry.source) + '"></td>' +
       '<td><input class="translation" value="' + esc(entry.translation) + '"></td>' +
       '<td><div class="action-buttons">' +
-        '<button class="search-source" title="Search English source in project" aria-label="Search English source in project">&#128269;</button>' +
-        '<button class="delete" title="Delete" aria-label="Delete">×</button>' +
+        '<button class="search-source" title="${htmlText("Search English source in project")}" aria-label="${htmlText("Search English source in project")}">&#128269;</button>' +
+        '<button class="delete" title="${htmlText("Delete")}" aria-label="${htmlText("Delete")}">×</button>' +
       '</div></td></tr>';
   }).join('');
-  meta.textContent = (language ? language + ' · ' : '') + visibleCount + ' / ' + entries.length + ' entries';
+  meta.textContent = (language ? language + ' · ' : '') + visibleCount + ' / ' + entries.length + ${scriptString(" entries")};
 }
 function commit() { vscode.postMessage({ type:'replace', entries }); }
 rows.addEventListener('change', event => {
@@ -179,9 +180,9 @@ search.addEventListener('input', render);
 sameOnly.addEventListener('change', render);
 document.getElementById('sort').addEventListener('click', () => { entries.sort((a,b) => a.source.localeCompare(b.source)); render(); commit(); });
 document.getElementById('add').addEventListener('click', () => {
-  const source = window.prompt('English source text');
+  const source = window.prompt(${scriptString("English source text")});
   if (!source) return;
-  if (entries.some(e => e.source === source)) { showError('This source text already exists.'); return; }
+  if (entries.some(e => e.source === source)) { showError(${scriptString("This source text already exists.")}); return; }
   entries.push({ source, translation:'' }); render(); commit();
 });
 function showError(message) { errorBox.textContent = message; errorBox.style.display = message ? 'block' : 'none'; }
@@ -190,7 +191,7 @@ window.addEventListener('message', event => {
   if (message.type === 'document') {
     entries = message.entries || []; language = message.language || '';
     showError((message.errors || []).join(String.fromCharCode(10))); render();
-  } else if (message.type === 'error') { showError(message.message || 'Invalid language map.'); }
+  } else if (message.type === 'error') { showError(message.message || ${scriptString("Invalid language map.")}); }
 });
 vscode.postMessage({ type:'ready' });
 </script>

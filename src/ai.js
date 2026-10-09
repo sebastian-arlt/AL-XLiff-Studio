@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const vscode = require('vscode');
 const { BRAND_NAME, CONFIG_SECTION, CONFIG_AI_SECTION } = require('./identity');
@@ -91,7 +92,7 @@ async function chooseAiModelCommand() {
     const allModels = await vscode.lm.selectChatModels({});
     const models = compatibleTranslationModels(allModels);
     if (!models.length) {
-        vscode.window.showWarningMessage('No compatible VS Code language model is currently available for XLIFF translation.');
+        vscode.window.showWarningMessage(t("No compatible VS Code language model is currently available for XLIFF translation."));
         return;
     }
 
@@ -102,7 +103,7 @@ async function chooseAiModelCommand() {
         model
     }));
     const pick = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Select a compatible AI model for XLIFF translations',
+        placeHolder: t("Select a compatible AI model for XLIFF translations"),
         matchOnDescription: true,
         matchOnDetail: true
     });
@@ -112,7 +113,7 @@ async function chooseAiModelCommand() {
     await config.update('modelId', pick.model.id, vscode.ConfigurationTarget.Workspace);
     await config.update('vendor', pick.model.vendor || '', vscode.ConfigurationTarget.Workspace);
     await config.update('family', pick.model.family || '', vscode.ConfigurationTarget.Workspace);
-    vscode.window.showInformationMessage(`${BRAND_NAME}: translation model set to ${pick.model.name || pick.model.id}.`);
+    vscode.window.showInformationMessage(t("{0}: translation model set to {1}.", BRAND_NAME, pick.model.name || pick.model.id));
 }
 
 async function translateItemsByKeyDetailed(items, sourceLanguage, targetLanguage, token, onProgress, resourceUri) {
@@ -125,7 +126,7 @@ async function translateItemsByKeyDetailed(items, sourceLanguage, targetLanguage
 
     const model = await selectModelFromConfiguration();
     if (!model) {
-        throw new Error('No compatible VS Code language model is available for XLIFF translation. Select a compatible model or disable AI fallback.');
+        throw new Error(t("No compatible VS Code language model is available for XLIFF translation. Select a compatible model or disable AI fallback."));
     }
 
     const batchSize = Math.max(1, Math.min(50, config.get('ai.batchSize', 20)));
@@ -375,7 +376,7 @@ async function writeAiDebugEntry(enabled, resourceUri, data) {
     if (Array.isArray(data && data.parsed)) entry.parsed = data.parsed;
     if (error) {
         entry.error = {
-            name: error.name || 'Error',
+            name: error.name || t("Error"),
             message: error.message || String(error),
             stack: error.stack
         };
@@ -676,7 +677,7 @@ function parseJsonArray(output, expectedCount) {
     parsed = parseSequentialLines(text, expectedCount);
     if (parsed) return parsed;
 
-    throw new Error('AI response could not be parsed as translation JSON. The selected model returned an unsupported response format.');
+    throw new Error(t("AI response could not be parsed as translation JSON. The selected model returned an unsupported response format."));
 }
 
 module.exports = {

@@ -13,3 +13,4 @@ CHANGE_REPORT.md
 *.zip
 !docs/technical-reference.md
 RELEASE-*.md
+!docs/readme.de.md

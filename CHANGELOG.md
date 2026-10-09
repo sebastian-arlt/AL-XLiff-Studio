@@ -1,3 +1,66 @@
+## 1.11.101
+
+- Preserve existing note order during Sync. Update changed Developer and Xliff Generator notes in place, retain matching repeated notes in their slots, and insert additional notes next to their existing kind.
+
+## 1.11.100
+
+Based on 1.11.94, retaining XLIFF Studio notes inside the XLIFF.
+
+- Enable fuzzy matching by default; disable provenance by default, including runtime fallbacks.
+- Fix double-escaped Data button text in AI Usage in English and German.
+
+## 1.11.94
+
+- Fixed repeated indentation growth when synchronizing fully inline XML, keeping dashboard sync status stable.
+- Added regression coverage for repeated synchronization after inserting a missing unit.
+- Completed remaining native VS Code checks: missing-language creation, AL definition navigation, Guided developer suggestions and QC completion, isolated row Sync and full restart persistence.
+## 1.11.93
+
+- Fixed Sync stripping inline XML wrapper tags, including the target-language attribute.
+- Fixed Discard Drafts for compact rows outside the current page, using host-resolved staging text.
+- Fixed the global Missing total after applying filtered-out drafts.
+- Added regression coverage and documented native VS Code workflow checks.
+
+## 1.11.92
+
+- Discard Drafts now affects and counts only unapplied drafts, moving them back to Proposals.
+- Discard Drafts uses the same enabled state as Apply Drafts and leaves applied-unsaved translations unchanged.
+
+## 1.11.91
+
+- Added global action counts to Proposals to Drafts and Discard Drafts, including zero.
+- Proposal count excludes protected entries, invalid placeholders and existing drafts.
+- Discard count combines unapplied drafts and applied-unsaved entries without duplicates.
+
+## 1.11.90
+
+- Try Translation counts open eligible units across pages, excludes staged items and disables at zero.
+- Discard Drafts handles both unapplied drafts and applied, unsaved translations.
+
+## 1.11.89
+
+- Proposals to Drafts now converts all valid proposals in the file across pages and filters.
+- Apply uses persisted draft text and provenance for unvisited pages.
+- Verified bulk conversion and Apply with 125 entries and a 50-row page.
+
+## 1.11.88
+
+- Discard Drafts moves unapplied drafts back to Proposals, both in the toolbar and per row.
+- Preserves saved targets and proposal provenance; persists the conversion through Save/reload.
+
+## 1.11.87
+
+- Fixed proposal/draft caches after transfer, bulk Apply, pagination and Save.
+- Prevented late blur events from recreating applied drafts.
+- Discard Drafts now undoes applied translations before Save and restores editable drafts.
+
+# 1.11.86
+
+- English is now the default interface language; German follows the VS Code display language.
+- Localized Dashboard, Guided Translation, Expert Editor, language maps, glossary, AI Usage, Project Overview, commands, settings and host messages.
+- Shared catalogs and native VS Code localization; XLIFF content and technical identifiers stay unchanged.
+- English extension overview with linked German documentation.
+
 # 1.11.85
 
 - Bildadressen und technische Referenz der Erweiterungsübersicht verwenden ausdrücklich den GitHub-Branch main.
@@ -1150,3 +1213,5 @@
 - Use VS Code Language Model API as fallback and persist AI translations in XLIFF and `.lng`.
 - Add visual two-column `.lng` custom editor with search, add/delete and sorting.
 - Reject AI translations that alter Business Central placeholders.
+
+

@@ -1,4 +1,5 @@
 'use strict';
+const { t, htmlText, scriptString, uiLanguage } = require('./localization');
 const { translationMemorySnapshots, mergeTranslationMemorySnapshots } = require('./translationMemory');
 
 const vscode = require('vscode');
@@ -122,10 +123,15 @@ function createWebviewRowIndexEntry(row) {
     const hasDraft = Boolean(row && row.hasTranslationDraft);
     const hasProposal = Boolean(row && row.proposal);
     const appliedUndo = Boolean(row && row.appliedUndo);
-    if (!hasDraft && !hasProposal && !appliedUndo) return undefined;
+    const tryCandidate = Boolean(row && row.missing && !row.notTranslatable && String(row.source || '').trim());
+    if (!hasDraft && !hasProposal && !appliedUndo && !tryCandidate) return undefined;
     const entry = { ordinal: Number(row.ordinal) };
+    if (tryCandidate) entry.tryCandidate = true;
     if (hasDraft) entry.hasTranslationDraft = true;
-    if (hasProposal) entry.hasProposal = true;
+    if (hasProposal) {
+        entry.hasProposal = true;
+        entry.proposalTransferable = !hasDraft && !row.notTranslatable && placeholdersMatch(row.source, row.proposal);
+    }
     if (appliedUndo) entry.appliedUndo = true;
     return entry;
 }
@@ -622,7 +628,7 @@ class XliffEditorProvider {
             else if (matches.length) unit = matches[0];
         }
         if (!unit) {
-            vscode.window.showWarningMessage(`${BRAND_NAME}: translation unit was not found in ${path.basename(uri.fsPath)}.`);
+            vscode.window.showWarningMessage(t("{0}: translation unit was not found in {1}.", BRAND_NAME, path.basename(uri.fsPath)));
             return false;
         }
         return XliffEditorProvider.openAtOrdinal(uri, unit.ordinal);
@@ -662,7 +668,7 @@ class XliffEditorProvider {
         }
 
         if (!unit) {
-            vscode.window.showWarningMessage(`${BRAND_NAME}: the translation unit for this Quality Check result has changed or no longer exists. Run Quality Check again.`);
+            vscode.window.showWarningMessage(t("{0}: the translation unit for this Quality Check result has changed or no longer exists. Run Quality Check again.", BRAND_NAME));
             return false;
         }
         return XliffEditorProvider.openAtOrdinal(uri, unit.ordinal, target.severity);
@@ -954,7 +960,7 @@ class XliffEditorProvider {
                 if (qualityAnalysis.projectIgnoreErrors && qualityAnalysis.projectIgnoreErrors.length) {
                     await webviewPanel.webview.postMessage({
                         type: 'warnings',
-                        warnings: [...(pending.baseWarnings || []), `Project Quality Ignore: ${qualityAnalysis.projectIgnoreErrors.join('; ')}`]
+                        warnings: [...(pending.baseWarnings || []), t("Project Quality Ignore: {0}", qualityAnalysis.projectIgnoreErrors.join('; '))]
                     });
                 }
                 perf.mark('publish deferred quality', { issues: report && report.summary ? report.summary.total : 0 });
@@ -1012,7 +1018,7 @@ class XliffEditorProvider {
             }
         };
 
-        const provenanceEnabled = () => vscode.workspace.getConfiguration(CONFIG_SECTION).get('provenance.enabled', true) !== false;
+        const provenanceEnabled = () => vscode.workspace.getConfiguration(CONFIG_SECTION).get('provenance.enabled', false) !== false;
 
         const loadCompanionMap = async parsed => {
             const language = parsed.targetLanguage;
@@ -1061,7 +1067,7 @@ class XliffEditorProvider {
                 await webviewPanel.webview.postMessage({
                     type: 'loadStart',
                     loadId,
-                    stage: 'Reading XLIFF',
+                    stage: t("Reading XLIFF"),
                     current: 0,
                     total: estimatedUnits
                 });
@@ -1083,7 +1089,7 @@ class XliffEditorProvider {
             perf.mark('parse XLIFF', { units: parsed.units.length, reusedSession: reusedParsedSession });
             if (await abandonStaleSnapshot('after parse XLIFF')) return;
             const readOnly = isGeneratorXliff(document.uri, parsed);
-            const provenanceIsEnabled = config.get('provenance.enabled', true) !== false;
+            const provenanceIsEnabled = config.get('provenance.enabled', false) !== false;
             const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
             const glossary = config.get('glossary.enabled', true) ? await readProjectGlossary(document.uri) : { entries: [], errors: [] };
             perf.mark('read glossary', { glossaryEntries: (glossary.entries || []).length });
@@ -1129,7 +1135,7 @@ class XliffEditorProvider {
                 await webviewPanel.webview.postMessage({
                     type: 'loadProgress',
                     loadId,
-                    stage: 'Preparing rows',
+                    stage: t("Preparing rows"),
                     current: 0,
                     total: parsed.units.length
                 });
@@ -1243,7 +1249,7 @@ class XliffEditorProvider {
                     await webviewPanel.webview.postMessage({
                         type: 'loadProgress',
                         loadId,
-                        stage: 'Preparing rows',
+                        stage: t("Preparing rows"),
                         current: unitIndex + 1,
                         total: parsed.units.length
                     });
@@ -1256,10 +1262,10 @@ class XliffEditorProvider {
             const duplicateIds = findDuplicateIds(parsed);
             const duplicateNotes = findDuplicateGeneratorNotes(parsed);
             const warnings = [];
-            if (duplicateIds.length) warnings.push(`Duplicate trans-unit ids: ${duplicateIds.join(', ')}`);
-            if (duplicateNotes.length) warnings.push(`${duplicateNotes.length} duplicate Xliff Generator note(s)`);
-            if (glossary.errors && glossary.errors.length) warnings.push(`Glossary: ${glossary.errors.join('; ')}`);
-            if (qualityAnalysis.projectIgnoreErrors && qualityAnalysis.projectIgnoreErrors.length) warnings.push(`Project Quality Ignore: ${qualityAnalysis.projectIgnoreErrors.join('; ')}`);
+            if (duplicateIds.length) warnings.push(t("Duplicate trans-unit ids: {0}", duplicateIds.join(', ')));
+            if (duplicateNotes.length) warnings.push(t("{0} duplicate Xliff Generator note(s)", duplicateNotes.length));
+            if (glossary.errors && glossary.errors.length) warnings.push(t("Glossary: {0}", glossary.errors.join('; ')));
+            if (qualityAnalysis.projectIgnoreErrors && qualityAnalysis.projectIgnoreErrors.length) warnings.push(t("Project Quality Ignore: {0}", qualityAnalysis.projectIgnoreErrors.join('; ')));
             if (deferInitialQuality) {
                 pendingDeferredQuality = {
                     loadId,
@@ -1276,7 +1282,7 @@ class XliffEditorProvider {
                 await webviewPanel.webview.postMessage({
                     type: 'loadProgress',
                     loadId,
-                    stage: 'Updating editor',
+                    stage: t("Updating editor"),
                     current: parsed.units.length,
                     total: parsed.units.length
                 });
@@ -1432,6 +1438,12 @@ class XliffEditorProvider {
                     }
                 };
             });
+            for (const item of persistenceItems) {
+                const ordinal = Number(item && item.ordinal);
+                if (!Number.isInteger(ordinal)) continue;
+                volatileStageCache.delete(ordinal);
+                if (!item.staged || item.staged.kind === 'draft') proposalCache.delete(ordinal);
+            }
             const result = setStagedTranslations(document.getText(), persistenceItems);
             perf.mark('set staged translations', { updated: result.updatedCount });
             if (!result.updatedCount) return false;
@@ -1568,7 +1580,7 @@ class XliffEditorProvider {
                     const latestParsed = await parseWithDocumentSessionAsync(document.uri, document.getText(), Number(document.version));
                     const unit = latestParsed.units[Number(message.ordinal)];
                     if (Number(message.documentVersion) !== Number(document.version) || !unit || unit.id !== message.id || unit.source !== message.source || String(unit.translate || '').toLowerCase() === 'no') {
-                        postError('The XLIFF or draft identity changed. Reload the wizard.');
+                        postError(t("The XLIFF or draft identity changed. Reload the wizard."));
                         return;
                     }
                     await persistStagedItem(Number(message.ordinal), { kind: 'draft', text: message.text, provenance: message.provenance, origin: message.origin });
@@ -1695,7 +1707,7 @@ class XliffEditorProvider {
                     const parsed = await parseWithDocumentSessionAsync(document.uri, document.getText(), Number(document.version));
                     const unit = unitAtOrdinal(parsed, Number(message.ordinal));
                     if (!unit) {
-                        postError('The selected translation unit could not be found.');
+                        postError(t("The selected translation unit could not be found."));
                         return;
                     }
                     await openAlSourceDefinition(document.uri, unit, parsed.targetLanguage);
@@ -1724,7 +1736,7 @@ class XliffEditorProvider {
                             const unit = latestParsed.units[Number(item.ordinal)];
                             return !unit || unit.id !== item.id || unit.source !== item.source;
                         })) {
-                            postError('The XLIFF or staged unit identity changed. Reload the wizard before saving.');
+                            postError(t("The XLIFF or staged unit identity changed. Reload the wizard before saving."));
                             return;
                         }
                     }
@@ -1759,7 +1771,7 @@ class XliffEditorProvider {
                         explicitSaveInProgress = false;
                     }
                     if (!saved) {
-                        postError('The XLIFF file could not be saved.');
+                        postError(t("The XLIFF file could not be saved."));
                         await postSaveState();
                         return;
                     }
@@ -1942,14 +1954,14 @@ class XliffEditorProvider {
                 if (message.type === 'setQualityIgnored') {
                     if (Number(message.qualityRevision) !== qualityPageStore.revision || Number(message.documentVersion) !== Number(document.version)) return;
                     if (isGeneratorFilename(document.uri)) {
-                        postError('Generated/source XLIFF files are read-only in the AL Xliff Studio XLIFF Editor.');
+                        postError(t("Generated/source XLIFF files are read-only in the AL Xliff Studio XLIFF Editor."));
                         return;
                     }
                     const ordinal = Number(message.ordinal);
                     const issue = message.issue || {};
                     if (!Number.isInteger(ordinal) || !issue.code) return;
                     if (String(issue.severity || '').toLowerCase() === 'error') {
-                        postError('Quality errors cannot be ignored. Fix the underlying XLIFF data instead.');
+                        postError(t("Quality errors cannot be ignored. Fix the underlying XLIFF data instead."));
                         return;
                     }
                     const result = setQualityIssueIgnored(document.getText(), ordinal, {
@@ -2000,14 +2012,14 @@ class XliffEditorProvider {
                         if (!qualityAnalysis.stale) publishQualityDiagnostics(document, report, parsedForQuality, messagePerf);
                         await postQualityReportToWebview(report, { includesDrafts: false });
                     } catch (err) {
-                        postError(`Project Quality Ignore could not be updated: ${formatError(err)}`);
+                        postError(t("Project Quality Ignore could not be updated: {0}", formatError(err)));
                     }
                     return;
                 }
 
                 if (message.type === 'acceptAllNoState') {
                     if (isGeneratorFilename(document.uri) || message.readOnly) {
-                        postError('Generated/source XLIFF files are read-only in the AL Xliff Studio XLIFF Editor.');
+                        postError(t("Generated/source XLIFF files are read-only in the AL Xliff Studio XLIFF Editor."));
                         return;
                     }
 
@@ -2022,20 +2034,20 @@ class XliffEditorProvider {
 
                     if (!eligibleCount) {
                         const detail = skippedCount
-                            ? ` ${skippedCount} no-state translation(s) have placeholder errors and were not eligible.`
+                            ? t(" {0} no-state translation(s) have placeholder errors and were not eligible.", skippedCount)
                             : '';
-                        showTransientStatus(`AL Xliff Studio: No non-empty no-state translations can be accepted.${detail}`);
+                        showTransientStatus(t("AL Xliff Studio: No non-empty no-state translations can be accepted.{0}", detail));
                         return;
                     }
 
                     const skippedText = skippedCount
-                        ? `\n\n${skippedCount} additional no-state translation(s) contain placeholder errors and will be skipped.`
+                        ? t("\n\n{0} additional no-state translation(s) contain placeholder errors and will be skipped.", skippedCount)
                         : '';
                     messagePerf.mark('await confirmation', { humanInteraction: true });
                     const confirm = await vscode.window.showWarningMessage(
-                        `Set ${eligibleCount} existing no-state translation(s) to translated?${skippedText}\n\nTranslation text will not be changed.`,
+                        t("Set {0} existing no-state translation(s) to translated?{1}\n\nTranslation text will not be changed.", eligibleCount, skippedText),
                         { modal: true },
-                        'Set to translated'
+                        t("Set to translated")
                     );
                     messagePerf.mark('confirmation received', { confirmed: confirm === 'Set to translated', humanInteraction: true });
                     if (confirm !== 'Set to translated') return;
@@ -2075,7 +2087,7 @@ class XliffEditorProvider {
                     });
                     messagePerf.mark('update no-state webview', { accepted: eligibleCount, skipped: skippedCount });
                     if (skippedCount) {
-                        void vscode.window.showWarningMessage(`AL Xliff Studio: ${eligibleCount} no-state translation(s) accepted; ${skippedCount} skipped because of placeholder errors.`);
+                        void vscode.window.showWarningMessage(t("AL Xliff Studio: {0} no-state translation(s) accepted; {1} skipped because of placeholder errors.", eligibleCount, skippedCount));
                     }
                     return;
                 }
@@ -2093,11 +2105,11 @@ class XliffEditorProvider {
                     await webviewPanel.webview.postMessage({ type: 'translationApplyBusy', ordinal, busy: true });
                     try {
                         if (isGeneratorFilename(document.uri) || message.readOnly) {
-                            postError('Generated/source XLIFF files are read-only in the AL Xliff Studio XLIFF Editor.');
+                            postError(t("Generated/source XLIFF files are read-only in the AL Xliff Studio XLIFF Editor."));
                             return;
                         }
                         if (!translation) {
-                            postError(`Cannot accept an empty translation for: ${requestedSource}`);
+                            postError(t("Cannot accept an empty translation for: {0}", requestedSource));
                             return;
                         }
 
@@ -2105,17 +2117,17 @@ class XliffEditorProvider {
                             const latestText = document.getText();
                             const latestParsed = await parseWithDocumentSessionAsync(document.uri, latestText, Number(document.version));
                             const latestUnit = latestParsed.units[ordinal];
-                            if (options.headless && Number(message.documentVersion) !== Number(document.version)) return { error: 'The XLIFF changed while this action was running. Reload the wizard.' };
-                            if (options.headless && latestUnit && String(message.id) !== String(latestUnit.id)) return { error: 'The translation unit identity changed. Reload the wizard.' };
-                            if (!latestUnit) return { error: 'The translation unit no longer exists. Refresh the editor and try again.' };
+                            if (options.headless && Number(message.documentVersion) !== Number(document.version)) return { error: t("The XLIFF changed while this action was running. Reload the wizard.") };
+                            if (options.headless && latestUnit && String(message.id) !== String(latestUnit.id)) return { error: t("The translation unit identity changed. Reload the wizard.") };
+                            if (!latestUnit) return { error: t("The translation unit no longer exists. Refresh the editor and try again.") };
                             if (requestedSource && latestUnit.source !== requestedSource) {
-                                return { error: 'The source text changed while this draft was open. Refresh the editor before applying it.' };
+                                return { error: t("The source text changed while this draft was open. Refresh the editor before applying it.") };
                             }
                             if (String(latestUnit.translate || '').trim().toLowerCase() === 'no' || message.notTranslatable) {
-                                return { error: 'This translation unit has translate=no and cannot be accepted.' };
+                                return { error: t("This translation unit has translate=no and cannot be accepted.") };
                             }
                             if (!placeholdersMatch(latestUnit.source, translation)) {
-                                return { error: `Placeholders do not match for: ${latestUnit.source}` };
+                                return { error: t("Placeholders do not match for: {0}", latestUnit.source) };
                             }
 
                             const currentState = String(latestUnit.targetState || requestedState || '').trim().toLowerCase();
@@ -2165,7 +2177,7 @@ class XliffEditorProvider {
                             const updated = updateTranslationUnitRaw(unitRaw, changes);
                             if (!updated.updated) return { noChange: true };
                             const applied = await applyUnitRawReplacement(latestUnit, updated.text);
-                            if (!applied) return { error: 'The XLIFF change could not be applied.' };
+                            if (!applied) return { error: t("The XLIFF change could not be applied.") };
                             pendingAppliedUndo.set(ordinal, undoSnapshot);
                             lastAppliedDraftRevision.set(ordinal, draftRevision);
                             proposalCache.delete(ordinal);
@@ -2200,7 +2212,7 @@ class XliffEditorProvider {
                             provenanceHistoryLabel: committed.provenance ? formatProvenanceHistory(committed.provenance) : ''
                         });
                         void writeAcceptedToMap([{ source: committed.unit.source, translation }], committed.targetLanguage)
-                            .catch(err => postError(`Translation was applied, but the companion .lng could not be updated: ${formatError(err)}`));
+                            .catch(err => postError(t("Translation was applied, but the companion .lng could not be updated: {0}", formatError(err))));
                         const qualityVersion = Number(document.version);
                         void XliffEditorProvider.runQualityCheckForUri(document.uri, document.getText())
                             .then(report => {
@@ -2223,17 +2235,17 @@ class XliffEditorProvider {
                     try {
                         const undo = pendingAppliedUndo.get(ordinal);
                         if (!undo) {
-                            postError('This applied translation can no longer be undone because the document was already saved or refreshed.');
+                            postError(t("This applied translation can no longer be undone because the document was already saved or refreshed."));
                             return;
                         }
                         const reverted = await enqueueDocumentMutation(async () => {
                             const latestParsed = await parseWithDocumentSessionAsync(document.uri, document.getText(), Number(document.version));
                             const latestUnit = latestParsed.units[ordinal];
                             if (!latestUnit || latestUnit.source !== undo.source) {
-                                return { error: 'The translation unit changed after Apply. Refresh the editor before continuing.' };
+                                return { error: t("The translation unit changed after Apply. Refresh the editor before continuing.") };
                             }
                             const restored = replaceTranslationUnitRaw(document.getText(), ordinal, undo.rawUnit);
-                            if (!restored.updatedCount) return { error: 'The previous XLIFF translation unit could not be restored.' };
+                            if (!restored.updatedCount) return { error: t("The previous XLIFF translation unit could not be restored.") };
                             let restoredText = restored.text;
                             if (undo.draft && undo.draft.text) {
                                 restoredText = setStagedTranslations(restoredText, [{
@@ -2247,7 +2259,7 @@ class XliffEditorProvider {
                                 }]).text;
                             }
                             const applied = await applyText(restoredText);
-                            if (!applied) return { error: 'The Apply operation could not be undone.' };
+                            if (!applied) return { error: t("The Apply operation could not be undone.") };
                             pendingAppliedUndo.delete(ordinal);
                             return { undo };
                         });
@@ -2279,7 +2291,7 @@ class XliffEditorProvider {
                 const parsed = await parseWithDocumentSessionAsync(document.uri, document.getText(), Number(document.version));
                 const readOnly = isGeneratorXliff(document.uri, parsed);
                 if (readOnly) {
-                    postError('Generated/source XLIFF files are read-only in the AL Xliff Studio XLIFF Editor.');
+                    postError(t("Generated/source XLIFF files are read-only in the AL Xliff Studio XLIFF Editor."));
                     return;
                 }
 
@@ -2292,7 +2304,7 @@ class XliffEditorProvider {
                     try {
                         const siblingUri = await findSiblingGxlf(document.uri, parsed.targetLanguage);
                         if (!siblingUri) {
-                            postError('No unambiguous matching *.g.xlf file was found next to this translation XLIFF.');
+                            postError(t("No unambiguous matching *.g.xlf file was found next to this translation XLIFF."));
                             return;
                         }
                         const beforeSyncText = document.getText();
@@ -2331,10 +2343,10 @@ class XliffEditorProvider {
                         proposalCache.clear();
                         await postDocument();
                         const removedSuffix = result.removedUnits.length
-                            ? ` ${result.removedUnits.length} obsolete translation unit(s) removed from the XLIFF; existing confirmed translation(s) were preserved in the companion .lng.`
+                            ? t(" {0} obsolete translation unit(s) removed from the XLIFF; existing confirmed translation(s) were preserved in the companion .lng.", result.removedUnits.length)
                             : '';
-                        const mapSuffix = ` Companion .lng updated from ${mapResult.pairCount} confirmed translation pair(s).`;
-                        showTransientStatus(`AL Xliff Studio: synchronized ${result.synchronizedSources} changed source(s), synchronized ${result.synchronizedDeveloperNotes || 0} Developer note set(s), synchronized ${result.synchronizedGeneratorNotes || 0} Xliff Generator note set(s), added ${result.addedUnits} missing unit(s), flagged ${result.flaggedTargets} existing target(s) for review.${removedSuffix}${mapSuffix}`, 9000);
+                        const mapSuffix = t(" Companion .lng updated from {0} confirmed translation pair(s).", mapResult.pairCount);
+                        showTransientStatus(t("AL Xliff Studio: synchronized {0} changed source(s), synchronized {1} Developer note set(s), synchronized {2} Xliff Generator note set(s), added {3} missing unit(s), flagged {4} existing target(s) for review.{5}{6}", result.synchronizedSources, result.synchronizedDeveloperNotes || 0, result.synchronizedGeneratorNotes || 0, result.addedUnits, result.flaggedTargets, removedSuffix, mapSuffix), 9000);
                     } finally {
                         for (const subscription of syncSubscriptions) subscription.dispose();
                         webviewPanel.webview.postMessage({ type: 'syncBusy', busy: false });
@@ -2346,9 +2358,9 @@ class XliffEditorProvider {
                     const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
                     const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
                     const importVersion = Number(document.version);
-                    const missingUnits = parsed.units.filter(unit => isMissingTranslation(unit, treatNeedsTranslationAsMissing) && (!options.headless || !getStagedTranslation(unit)));
+                    const missingUnits = parsed.units.filter(unit => isMissingTranslation(unit, treatNeedsTranslationAsMissing) && String(unit.translate || '').trim().toLowerCase() !== 'no' && String(unit.source || '').trim() && !volatileStageCache.has(unit.ordinal) && !proposalCache.has(unit.ordinal) && !getStagedTranslation(unit));
                     if (!missingUnits.length) {
-                        showTransientStatus('AL Xliff Studio: no missing translations in this XLIFF.');
+                        showTransientStatus(t("AL Xliff Studio: no missing translations in this XLIFF."));
                         return;
                     }
 
@@ -2358,7 +2370,7 @@ class XliffEditorProvider {
                         const glossary = config.get('glossary.enabled', true) ? await readProjectGlossary(document.uri) : { entries: [] };
                         const glossaryEntries = glossary.entries || [];
                         const fuzzyOptions = {
-                            enabled: !message.localOnly && config.get('fuzzyMatch.enabled', false),
+                            enabled: !message.localOnly && config.get('fuzzyMatch.enabled', true),
                             minimumQuality: config.get('fuzzyMatch.minimumQuality', 80)
                         };
                         const bySource = new Map();
@@ -2422,15 +2434,15 @@ class XliffEditorProvider {
                         let aiProposals = 0;
                         if (!message.localOnly && unresolved.length && config.get('ai.enabled', true) !== false) {
                             const choice = await vscode.window.showWarningMessage(
-                                `${unresolved.length} open translation${unresolved.length === 1 ? '' : 's'}`,
+                                t("{0} open translation{1}", unresolved.length, unresolved.length === 1 ? '' : 's'),
                                 { modal: true },
-                                'Use AI',
-                                'Continue without AI'
+                                t("Use AI"),
+                                t("Continue without AI")
                             );
                             if (choice === 'Use AI') {
                                 await vscode.window.withProgress({
                                     location: vscode.ProgressLocation.Notification,
-                                    title: 'AL Xliff Studio: creating AI drafts',
+                                    title: t("AL Xliff Studio: creating AI drafts"),
                                     cancellable: true
                                 }, async (progress, token) => {
                                     progress.report({ message: `0 / ${unresolved.length}` });
@@ -2478,7 +2490,7 @@ class XliffEditorProvider {
                         }
 
                         if (stagedPersistence.length) {
-                            if (options.headless && Number(document.version) !== importVersion) throw new Error('Die XLIFF wurde während des Imports geändert. Bitte neu laden.');
+                            if (options.headless && Number(document.version) !== importVersion) throw new Error(t("The XLIFF changed during import. Please reload."));
                             await persistStagedItems(stagedPersistence);
                         }
                         await postDocument();
@@ -2489,7 +2501,7 @@ class XliffEditorProvider {
                             });
                         }
                         const unresolvedAfter = unresolved.length - aiProposals;
-                        showTransientStatus(`AL Xliff Studio: ${stagedTranslations.length} direct translation draft(s), ${fuzzyProposals} fuzzy proposal draft(s), ${aiProposals} AI proposal draft(s)${unresolvedAfter > 0 ? `, ${unresolvedAfter} still open` : ''}. Use Apply Drafts to write staged changes as translated.`, 9000);
+                        showTransientStatus(t("AL Xliff Studio: {0} direct translation draft(s), {1} fuzzy proposal draft(s), {2} AI proposal draft(s){3}. Use Apply Drafts to write staged changes as translated.", stagedTranslations.length, fuzzyProposals, aiProposals, unresolvedAfter > 0 ? `, ${unresolvedAfter} still open` : ''), 9000);
                     } finally {
                         webviewPanel.webview.postMessage({ type: 'tryBusy', all: true, busy: false });
                     }
@@ -2554,7 +2566,7 @@ class XliffEditorProvider {
                             type: 'applyDraftsProgress',
                             current: 0,
                             total: requested.length,
-                            stage: 'Applying drafts'
+                            stage: t("Applying drafts")
                         });
                     }
 
@@ -2603,7 +2615,7 @@ class XliffEditorProvider {
                                 skipped.push({ ordinal: itemOrdinal, reason: 'placeholder mismatch' });
                                 continue;
                             }
-                            const suppliedProvenance = provenanceEnabled() ? sanitizeProvenance(requestedItem.provenance) : undefined;
+                            const suppliedProvenance = provenanceEnabled() ? sanitizeProvenance(requestedItem.provenance || (stagedFallback && stagedFallback.kind === 'draft' ? stagedFallback.provenance : undefined)) : undefined;
                             const appliedProvenance = provenanceEnabled()
                                 ? withAction(suppliedProvenance || manualProvenance(undefined, 'draft'), 'applied')
                                 : undefined;
@@ -2634,6 +2646,7 @@ class XliffEditorProvider {
                             });
                             accepted.push({ source: itemUnit.source, translation });
                             saved.push({
+                                revision: Number(requestedItem.revision) || 0,
                                 ordinal: itemOrdinal,
                                 translation,
                                 state: 'translated',
@@ -2657,7 +2670,7 @@ class XliffEditorProvider {
                         const actuallyAccepted = accepted.filter((item, index) => updatedSet.has(saved[index] && saved[index].ordinal));
                         const applied = await applyText(updated.text);
                         messagePerf.mark('apply draft text edit', { applied, updated: updated.updatedCount });
-                        if (!applied) throw new Error('The XLIFF draft changes could not be applied.');
+                        if (!applied) throw new Error(t("The XLIFF draft changes could not be applied."));
                         for (const item of actuallySaved) {
                             const snapshot = undoSnapshots.get(item.ordinal);
                             if (snapshot) {
@@ -2668,13 +2681,14 @@ class XliffEditorProvider {
                                 };
                                 pendingAppliedUndo.set(item.ordinal, snapshot);
                             }
+                            lastAppliedDraftRevision.set(item.ordinal, item.revision);
                             proposalCache.delete(item.ordinal);
                             volatileStageCache.delete(item.ordinal);
                             item.canUndoApply = true;
                         }
                         return { accepted: actuallyAccepted, saved: actuallySaved, skipped };
                     }).catch(error => {
-                        if (!isWorkerCancellation(error)) postError(`Drafts could not be applied: ${formatError(error)}`);
+                        if (!isWorkerCancellation(error)) postError(t("Drafts could not be applied: {0}", formatError(error)));
                         return { accepted: [], saved: [], skipped: [] };
                     });
 
@@ -2696,13 +2710,13 @@ class XliffEditorProvider {
                         });
                     }
                     if (commit.skipped && commit.skipped.length) {
-                        postError(`${commit.skipped.length} draft(s) were not applied. Check empty text, placeholders, translate=no, or source changes.`);
+                        postError(t("{0} draft(s) were not applied. Check empty text, placeholders, translate=no, or source changes.", commit.skipped.length));
                     }
 
                     const qualityVersion = Number(document.version);
                     if (commit.accepted && commit.accepted.length) {
                         void writeAcceptedToMap(commit.accepted).catch(err =>
-                            postError(`Drafts were applied, but the companion .lng could not be updated: ${formatError(err)}`)
+                            postError(t("Drafts were applied, but the companion .lng could not be updated: {0}", formatError(err)))
                         );
                         void XliffEditorProvider.runQualityCheckForUri(document.uri, document.getText())
                             .then(report => {
@@ -2716,23 +2730,54 @@ class XliffEditorProvider {
                 }
 
 
+                if (message.type === 'draftsToProposals') {
+                    const requested = Array.isArray(message.items) ? message.items : [];
+                    const latestParsed = await parseWithDocumentSessionAsync(document.uri, document.getText(), Number(document.version));
+                    const moved = [];
+                    for (const item of requested) {
+                        const ordinal = Number(item.ordinal);
+                        const unit = latestParsed.units[ordinal];
+                        if (!unit || (item.source && item.source !== unit.source)) continue;
+                        const stage = volatileStageCache.get(ordinal) || getStagedTranslation(unit);
+                        const text = typeof item.translation === 'string' ? item.translation
+                            : stage && stage.kind === 'draft' ? String(stage.text || '') : undefined;
+                        if (text === undefined) continue;
+                        moved.push({ ordinal, source:unit.source, translation:text, savedTranslation:unit.target || '',
+                            provenance:item.provenance || (stage && stage.provenance),
+                            origin:item.origin || (stage && stage.origin) || '',
+                            missing:isMissingTranslation(unit, vscode.workspace.getConfiguration(CONFIG_SECTION).get('treatNeedsTranslationAsMissing',true)),
+                            review:isReviewTranslation(unit), notTranslatable:String(unit.translate || '').toLowerCase() === 'no' });
+                    }
+                    await persistStagedItems(moved.map(item => ({ ordinal:item.ordinal, staged:{kind:'proposal', text:item.translation,
+                        provenance:provenanceEnabled() ? sanitizeProvenance(item.provenance) : undefined,
+                        origin:provenanceEnabled() ? item.origin : ''} })));
+                    await webviewPanel.webview.postMessage({type:'draftsMovedToProposals',items:moved,documentVersion:Number(document.version)});
+                    return;
+                }
+
                 if (message.type === 'acceptMany') {
                     const requested = Array.isArray(message.items) ? message.items : [];
                     const staged = [];
                     for (const requestedItem of requested) {
                         const itemOrdinal = Number(requestedItem.ordinal);
                         const itemUnit = parsed.units[itemOrdinal];
-                        const translation = typeof requestedItem.translation === 'string' ? requestedItem.translation : '';
+                        const persistedStage = itemUnit ? (volatileStageCache.get(itemOrdinal) || getStagedTranslation(itemUnit)) : undefined;
+                        if (persistedStage && persistedStage.kind === 'draft') continue;
+                        if (itemUnit && requestedItem.source && requestedItem.source !== itemUnit.source) continue;
+                        const cachedProposal = proposalCache.get(itemOrdinal);
+                        const translation = typeof requestedItem.translation === 'string' ? requestedItem.translation
+                            : persistedStage && persistedStage.kind === 'proposal' ? String(persistedStage.text || '')
+                            : cachedProposal ? String(cachedProposal.text || '') : '';
                         if (!itemUnit || !translation || String(itemUnit.translate || '').trim().toLowerCase() === 'no') continue;
                         if (!placeholdersMatch(itemUnit.source, translation)) continue;
                         const cached = proposalCache.get(itemOrdinal);
                         proposalCache.delete(itemOrdinal);
                         const supplied = provenanceEnabled() ? sanitizeProvenance(requestedItem.provenance) : undefined;
                         const provenance = provenanceEnabled()
-                            ? (supplied || (cached && cached.provenance ? cached.provenance : manualProvenance(undefined, 'draft')))
+                            ? (supplied || (persistedStage && persistedStage.provenance) || (cached && cached.provenance ? cached.provenance : manualProvenance(undefined, 'draft')))
                             : undefined;
                         const origin = provenanceEnabled()
-                            ? (String(requestedItem.origin || '') || (cached ? (cached.origin || formatProvenanceLabel(cached.provenance)) : 'Manual'))
+                            ? (String(requestedItem.origin || '') || (persistedStage && persistedStage.origin) || (cached ? (cached.origin || formatProvenanceLabel(cached.provenance)) : 'Manual'))
                             : '';
                         staged.push({
                             ordinal: itemOrdinal,
@@ -2763,7 +2808,7 @@ class XliffEditorProvider {
 
                 if (!unit) return;
                 if (String(unit.translate || '').trim().toLowerCase() === 'no') {
-                    postError('This trans-unit has translate="no" and is not editable.');
+                    postError(t("This trans-unit has translate=\"no\" and is not editable."));
                     return;
                 }
 
@@ -2786,19 +2831,19 @@ class XliffEditorProvider {
                             && (!requestedId || String(currentUnit.id || '') === requestedId)
                             && (!requestedSource || String(currentUnit.source || '') === requestedSource);
                         if (!identityMatches) {
-                            postError('This translation unit changed while the editor was open. Refresh the XLIFF Editor and try again.');
+                            postError(t("This translation unit changed while the editor was open. Refresh the XLIFF Editor and try again."));
                             await postDocument();
                             return;
                         }
                         if (String(currentUnit.translate || '').trim().toLowerCase() === 'no') {
-                            postError('This trans-unit has translate="no" and is not editable.');
+                            postError(t("This trans-unit has translate=\"no\" and is not editable."));
                             return;
                         }
 
                         const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
                         const treatNeedsTranslationAsMissing = config.get('treatNeedsTranslationAsMissing', true);
                         if (!isMissingTranslation(currentUnit, treatNeedsTranslationAsMissing)) {
-                            postError('This row is not missing a translation.');
+                            postError(t("This row is not missing a translation."));
                             return;
                         }
 
@@ -2807,7 +2852,7 @@ class XliffEditorProvider {
                         const glossary = config.get('glossary.enabled', true) ? await readProjectGlossary(document.uri) : { entries: [] };
                         const glossaryEntries = glossary.entries || [];
                         const fuzzyOptions = {
-                            enabled: config.get('fuzzyMatch.enabled', false),
+                            enabled: config.get('fuzzyMatch.enabled', true),
                             minimumQuality: config.get('fuzzyMatch.minimumQuality', 80)
                         };
                         const sameSourceUnits = (getUnitIndex(currentParsed).bySource.get(String(currentUnit.source)) || []).filter(candidate =>
@@ -2829,7 +2874,7 @@ class XliffEditorProvider {
 
                         // Do not attach a result calculated for an obsolete in-memory snapshot.
                         if (Number(document.version) !== snapshotVersion) {
-                            postError('The XLIFF changed while Try Translation was resolving local suggestions. Try again with the current row.');
+                            postError(t("The XLIFF changed while Try Translation was resolving local suggestions. Try again with the current row."));
                             return;
                         }
 
@@ -2871,15 +2916,15 @@ class XliffEditorProvider {
                         }
 
                         if (config.get('ai.enabled', true) === false) {
-                            postError('No changed Developer comment, .lng, glossary, or fuzzy suggestion was found, and AI is disabled.');
+                            postError(t("No changed Developer comment, .lng, glossary, or fuzzy suggestion was found, and AI is disabled."));
                             return;
                         }
 
                         const choice = await vscode.window.showWarningMessage(
                             '1 open translation',
                             { modal: true },
-                            'Use AI',
-                            'Continue without AI'
+                            t("Use AI"),
+                            t("Continue without AI")
                         );
                         if (choice !== 'Use AI') return;
 
@@ -2904,7 +2949,7 @@ class XliffEditorProvider {
                             if (suggestion) progress.report({ message: '1 / 1', increment: 100 });
                         });
                         if (!suggestion) {
-                            postError('The AI did not return a usable translation. Check placeholders or model availability.');
+                            postError(t("The AI did not return a usable translation. Check placeholders or model availability."));
                             return;
                         }
 
@@ -2918,12 +2963,12 @@ class XliffEditorProvider {
                             && (!requestedId || String(latestUnit.id || '') === requestedId)
                             && (!requestedSource || String(latestUnit.source || '') === requestedSource);
                         if (!latestIdentityMatches || !isMissingTranslation(latestUnit, treatNeedsTranslationAsMissing)) {
-                            postError('This translation unit changed while AI was running. Refresh the row before applying the AI proposal.');
+                            postError(t("This translation unit changed while AI was running. Refresh the row before applying the AI proposal."));
                             return;
                         }
                         const latestTranslation = latestUnit.target === undefined ? '' : String(latestUnit.target);
                         if (suggestion === latestTranslation) {
-                            showTransientStatus('AL Xliff Studio: the new AI suggestion is identical to the current translation; no proposal was staged.');
+                            showTransientStatus(t("AL Xliff Studio: the new AI suggestion is identical to the current translation; no proposal was staged."));
                             return;
                         }
 
@@ -2953,14 +2998,14 @@ class XliffEditorProvider {
                 if (message.type === 'addGlossaryTerm') {
                     const suggested = typeof message.translation === 'string' ? message.translation : (unit.target || '');
                     const sourceTerm = await vscode.window.showInputBox({
-                        title: 'Add terminology',
-                        prompt: 'Source term or phrase',
+                        title: t("Add terminology"),
+                        prompt: t("Source term or phrase"),
                         value: unit.source || ''
                     });
                     if (!sourceTerm) return;
                     const translation = await vscode.window.showInputBox({
-                        title: 'Add terminology',
-                        prompt: `Required ${parsed.targetLanguage || 'target'} translation`,
+                        title: t("Add terminology"),
+                        prompt: t("Required {0} translation", parsed.targetLanguage || 'target'),
                         value: suggested || ''
                     });
                     if (!translation) return;
@@ -2972,7 +3017,7 @@ class XliffEditorProvider {
                         caseSensitive: false,
                         note: ''
                     });
-                    showTransientStatus(`AL Xliff Studio: terminology added: ${sourceTerm} → ${translation}`);
+                    showTransientStatus(t("AL Xliff Studio: terminology added: {0} → {1}", sourceTerm, translation));
                     await postDocument();
                     return;
                 }
@@ -2982,12 +3027,12 @@ class XliffEditorProvider {
                     const result = await enqueueDocumentMutation(async () => {
                         const latestParsed = await parseWithDocumentSessionAsync(document.uri, document.getText(), Number(document.version));
                         const latestUnit = latestParsed.units[ordinal];
-                        if (!latestUnit) return { error: 'The translation unit no longer exists. Refresh the editor and try again.' };
+                        if (!latestUnit) return { error: t("The translation unit no longer exists. Refresh the editor and try again.") };
                         const completedState = ['translated', 'signed-off', 'final'].includes(requestedState.toLowerCase());
                         if (completedState) {
-                            if (!latestUnit.target) return { error: `Cannot mark an empty translation as ${requestedState}: ${latestUnit.source}` };
+                            if (!latestUnit.target) return { error: t("Cannot mark an empty translation as {0}: {1}", requestedState, latestUnit.source) };
                             if (!placeholdersMatch(latestUnit.source, latestUnit.target)) {
-                                return { error: `Placeholders do not match for: ${latestUnit.source}` };
+                                return { error: t("Placeholders do not match for: {0}", latestUnit.source) };
                             }
                         }
                         const statusProvenance = completedState && provenanceEnabled()
@@ -2996,7 +3041,7 @@ class XliffEditorProvider {
                         const updated = updateTranslationUnit(document.getText(), ordinal, { state: requestedState, provenance: statusProvenance });
                         if (!updated.updatedCount) return { noChange: true };
                         const applied = await applyText(updated.text);
-                        if (!applied) return { error: 'The XLIFF status change could not be applied.' };
+                        if (!applied) return { error: t("The XLIFF status change could not be applied.") };
                         const treatNeedsTranslationAsMissing = vscode.workspace.getConfiguration(CONFIG_SECTION).get('treatNeedsTranslationAsMissing', true);
                         const effectiveUnit = { ...latestUnit, targetState: requestedState };
                         return {
@@ -3030,7 +3075,7 @@ class XliffEditorProvider {
                     });
                     if (result.completedState) {
                         void writeAcceptedToMap([{ source: result.source, translation: result.translation }])
-                            .catch(err => postError(`Status was updated, but the companion .lng could not be updated: ${formatError(err)}`));
+                            .catch(err => postError(t("Status was updated, but the companion .lng could not be updated: {0}", formatError(err))));
                     }
                     const qualityVersion = Number(document.version);
                     void XliffEditorProvider.runQualityCheckForUri(document.uri, document.getText())
@@ -3048,7 +3093,7 @@ class XliffEditorProvider {
                     const aiSnapshotVersion = Number(document.version);
                     const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
                     if (config.get('ai.enabled', true) === false) {
-                        postError('AI translation is disabled in AL Xliff Studio settings.');
+                        postError(t("AI translation is disabled in AL Xliff Studio settings."));
                         return;
                     }
                     webviewPanel.webview.postMessage({ type: 'aiBusy', ordinal, busy: true });
@@ -3066,11 +3111,11 @@ class XliffEditorProvider {
                         const aiDetailed = await translateItemsByKeyDetailed([aiItem], parsed.sourceLanguage, parsed.targetLanguage, undefined, undefined, document.uri);
                         const suggestion = aiDetailed.translations.get(aiItem.key);
                         if (disposed || Number(document.version) !== aiSnapshotVersion) {
-                            postError('The XLIFF changed while AI was working. Refresh before requesting a new suggestion.');
+                            postError(t("The XLIFF changed while AI was working. Refresh before requesting a new suggestion."));
                             return;
                         }
                         if (!suggestion) {
-                            postError('The AI did not return a usable translation. Check placeholders or model availability.');
+                            postError(t("The AI did not return a usable translation. Check placeholders or model availability."));
                             return;
                         }
                         const provenance = provenanceEnabled() ? provenanceFromAi(aiDetailed.model, 'proposal') : undefined;
@@ -3099,7 +3144,7 @@ class XliffEditorProvider {
                     const translation = typeof message.translation === 'string' ? message.translation : '';
                     if (!translation) return;
                     if (!placeholdersMatch(unit.source, translation)) {
-                        postError(`Placeholders do not match for: ${unit.source}`);
+                        postError(t("Placeholders do not match for: {0}", unit.source));
                         return;
                     }
                     const cached = proposalCache.get(ordinal);
@@ -3136,12 +3181,12 @@ class XliffEditorProvider {
     getHtml(webview) {
         const nonce = String(Date.now());
         return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${uiLanguage()}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<title>AL Xliff Studio — XLIFF Editor</title>
+<title>${htmlText("AL Xliff Studio — XLIFF Editor")}</title>
 <style>
 :root { --row-border: var(--vscode-panel-border); }
 * { box-sizing:border-box; }
@@ -3309,99 +3354,99 @@ tbody tr.saved-flash:hover > td { background:color-mix(in srgb, var(--xliff-navi
 <div class="chrome" id="chrome">
   <div class="mainbar">
     <div class="identity">
-      <div class="title">AL Xliff Studio — XLIFF Editor</div>
-      <div class="meta" id="meta">Loading…</div>
-      <div class="workflow-hint">⇄ Sync → ? Try Translation / AI → review proposals → ← Proposals to Drafts → ✓ Apply Drafts → translated</div>
+      <div class="title">${htmlText("AL Xliff Studio — XLIFF Editor")}</div>
+      <div class="meta" id="meta">${htmlText("Loading…")}</div>
+      <div class="workflow-hint">${htmlText("⇄ Sync → ? Try Translation / AI → review proposals → ← Proposals to Drafts → ✓ Apply Drafts → translated")}</div>
     </div>
     <div class="workflow">
       <div class="workflow-group">
-        <button id="sync" title="Synchronize translation units with the matching generated .g.xlf file and create/update the companion .lng translation memory. This never creates proposals.">⇄ Sync</button>
-        <button id="tryGet" class="primary-action" title="Stage missing translations without accepting them as targets. Drafts and proposals are persisted as AL Xliff Studio notes in the XLIFF; Developer comments, exact .lng matches, and exact glossary matches become Translation drafts; fuzzy and AI matches become Proposal drafts.">? Try Translation</button>
-        <button id="acceptVisible" title="Move all valid visible proposals into editable Translation drafts. The staged value remains metadata only and is persisted as an AL Xliff Studio note until applied.">← Proposals to Drafts</button>
-        <button id="saveDrafts" title="Apply all Translation drafts as target translations and set them to state=translated. Proposal drafts stay proposals until moved with Proposals to Drafts.">✓ Apply Drafts</button>
-        <button id="discardDrafts" title="Discard all staged Translation drafts and Proposal drafts and remove their persisted staging notes from the XLIFF.">↶ Discard Drafts</button>
+        <button id="sync" title="${htmlText("Synchronize translation units with the matching generated .g.xlf file and create/update the companion .lng translation memory. This never creates proposals.")}">${htmlText("⇄ Sync")}</button>
+        <button id="tryGet" class="primary-action" title="${htmlText("Stage missing translations without accepting them as targets. Drafts and proposals are persisted as AL Xliff Studio notes in the XLIFF; Developer comments, exact .lng matches, and exact glossary matches become Translation drafts; fuzzy and AI matches become Proposal drafts.")}">${htmlText("? Try Translation")}</button>
+        <button id="acceptVisible" title="${htmlText("Move all valid proposals in this XLIFF into editable Translation drafts, across all pages and filters.")}">${htmlText("← Proposals to Drafts")}</button>
+        <button id="saveDrafts" title="${htmlText("Apply all Translation drafts as target translations and set them to state=translated. Proposal drafts stay proposals until moved with Proposals to Drafts.")}">${htmlText("✓ Apply Drafts")}</button>
+        <button id="discardDrafts" title="${htmlText("Move all unapplied Translation drafts back to Proposals. Keep the saved translations unchanged.")}">${htmlText("↶ Discard Drafts")}</button>
       </div>
       <span class="workflow-separator" aria-hidden="true"></span>
       <div class="workflow-group">
-        <button id="acceptAllNoState" title="Set all existing non-empty no-state translations to translated after a confirmation prompt. Translation text is not changed.">✓ No State</button>
-        <button id="qualityCheck" title="Run the XLIFF quality check. Persisted staged drafts are included without being applied as target translations.">! Quality Check</button>
+        <button id="acceptAllNoState" title="${htmlText("Set all existing non-empty no-state translations to translated after a confirmation prompt. Translation text is not changed.")}">${htmlText("✓ No State")}</button>
+        <button id="qualityCheck" title="${htmlText("Run the XLIFF quality check. Persisted staged drafts are included without being applied as target translations.")}">${htmlText("! Quality Check")}</button>
       </div>
       <span class="workflow-separator" aria-hidden="true"></span>
       <div class="workflow-group">
-        <button id="showInvisibles" class="icon-only" title="Show non-printing characters in Source, Translation, Proposed translation and Developer notes" aria-label="Show non-printing characters" aria-pressed="false">¶</button>
+        <button id="showInvisibles" class="icon-only" title="${htmlText("Show non-printing characters in Source, Translation, Proposed translation and Developer notes")}" aria-label="${htmlText("Show non-printing characters")}" aria-pressed="false">¶</button>
       </div>
       <span class="workflow-separator" aria-hidden="true"></span>
       <div class="workflow-group">
-        <button id="dashboard" class="icon-only" title="Open project-wide Translation Dashboard" aria-label="Open project-wide Translation Dashboard"><svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="0.5"></rect><rect x="9" y="2" width="5" height="5" rx="0.5"></rect><rect x="2" y="9" width="5" height="5" rx="0.5"></rect><rect x="9" y="9" width="5" height="5" rx="0.5"></rect></svg></button>
-        <button id="glossary" class="icon-only" title="Open project terminology glossary">T</button>
-        <button id="refresh" class="icon-only" title="Refresh editor view">↻</button>
-        <button id="openText" class="icon-only" title="Open raw XLIFF/XML">&lt;/&gt;</button>
+        <button id="dashboard" class="icon-only" title="${htmlText("Open project-wide Translation Dashboard")}" aria-label="${htmlText("Open project-wide Translation Dashboard")}"><svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="0.5"></rect><rect x="9" y="2" width="5" height="5" rx="0.5"></rect><rect x="2" y="9" width="5" height="5" rx="0.5"></rect><rect x="9" y="9" width="5" height="5" rx="0.5"></rect></svg></button>
+        <button id="glossary" class="icon-only" title="${htmlText("Open project terminology glossary")}">T</button>
+        <button id="refresh" class="icon-only" title="${htmlText("Refresh editor view")}">↻</button>
+        <button id="openText" class="icon-only" title="${htmlText("Open raw XLIFF/XML")}">&lt;/&gt;</button>
       </div>
       <span class="workflow-separator" aria-hidden="true"></span>
       <div class="workflow-group">
-        <button id="saveFile" class="primary-action" title="Save the XLIFF file. Staged Translation/Proposal drafts remain staged until Apply Drafts.">Save</button>
+        <button id="saveFile" class="primary-action" title="${htmlText("Save the XLIFF file. Staged Translation/Proposal drafts remain staged until Apply Drafts.")}">${htmlText("Save")}</button>
       </div>
     </div>
   </div>
 <div class="quality-panel hidden" id="qualityPanel">
-  <div class="quality-header"><strong>Quality Check</strong><span class="quality-summary" id="qualitySummary"></span><div class="quality-severity-filters" title="Severity filters are OR-combined. With none selected, all severities are shown."><span class="filter-caption">Any:</span><label class="toggle"><input id="qualityFilterInfo" type="checkbox"> Info</label><label class="toggle"><input id="qualityFilterWarning" type="checkbox"> Warning</label><label class="toggle"><input id="qualityFilterError" type="checkbox"> Error</label></div><button id="qualityRefresh" class="icon-only" title="Run the quality check again">↻</button><button id="qualityProblems" title="Open the VS Code Problems view. For large XLIFF files the published diagnostics can be capped by alXliffStudio.quality.maxProblemsDiagnostics; all findings remain available here.">Problems</button><button id="qualityIgnored" title="Show ignored Quality Check findings">Ignored (0)</button><button id="qualityToggle" class="quality-toggle icon-only" title="Collapse quality results" aria-expanded="true">⌃</button></div>
-  <div class="quality-body" id="qualityBody"><div class="quality-list" id="qualityList"></div><div class="quality-pager" id="qualityPager" aria-label="Quality result pagination"><label class="filter-caption" for="qualitySort">Sort:</label><select id="qualitySort" title="Sort all filtered Quality findings"><option value="report">Rule priority</option><option value="severity">Severity</option><option value="ordinal">Entry number</option><option value="code">Rule</option><option value="source">Source</option><option value="target">Translation</option></select><select id="qualitySortDirection" aria-label="Quality sort direction"><option value="asc">Ascending ↑</option><option value="desc">Descending ↓</option></select><span class="filter-caption">Page size:</span><select id="qualityPageSize" title="Quality findings per page"><option value="50">50</option><option value="100" selected>100</option><option value="200">200</option></select><button id="qualityFirstPage" class="icon-only" title="First quality page">«</button><button id="qualityPrevPage" class="icon-only" title="Previous quality page">‹</button><span class="quality-page-info" id="qualityPageInfo">0 / 0</span><button id="qualityNextPage" class="icon-only" title="Next quality page">›</button><button id="qualityLastPage" class="icon-only" title="Last quality page">»</button></div></div>
+  <div class="quality-header"><strong>${htmlText("Quality Check")}</strong><span class="quality-summary" id="qualitySummary"></span><div class="quality-severity-filters" title="${htmlText("Severity filters are OR-combined. With none selected, all severities are shown.")}"><span class="filter-caption">${htmlText("Any:")}</span><label class="toggle"><input id="qualityFilterInfo" type="checkbox"> ${htmlText("Info")}</label><label class="toggle"><input id="qualityFilterWarning" type="checkbox"> ${htmlText("Warning")}</label><label class="toggle"><input id="qualityFilterError" type="checkbox"> ${htmlText("Error")}</label></div><button id="qualityRefresh" class="icon-only" title="${htmlText("Run the quality check again")}">↻</button><button id="qualityProblems" title="${htmlText("Open the VS Code Problems view. For large XLIFF files the published diagnostics can be capped by alXliffStudio.quality.maxProblemsDiagnostics; all findings remain available here.")}">${htmlText("Problems")}</button><button id="qualityIgnored" title="${htmlText("Show ignored Quality Check findings")}">${htmlText("Ignored (0)")}</button><button id="qualityToggle" class="quality-toggle icon-only" title="${htmlText("Collapse quality results")}" aria-expanded="true">⌃</button></div>
+  <div class="quality-body" id="qualityBody"><div class="quality-list" id="qualityList"></div><div class="quality-pager" id="qualityPager" aria-label="${htmlText("Quality result pagination")}"><label class="filter-caption" for="qualitySort">${htmlText("Sort:")}</label><select id="qualitySort" title="${htmlText("Sort all filtered Quality findings")}"><option value="report">${htmlText("Rule priority")}</option><option value="severity">${htmlText("Severity")}</option><option value="ordinal">${htmlText("Entry number")}</option><option value="code">${htmlText("Rule")}</option><option value="source">${htmlText("Source")}</option><option value="target">${htmlText("Translation")}</option></select><select id="qualitySortDirection" aria-label="${htmlText("Quality sort direction")}"><option value="asc">${htmlText("Ascending ↑")}</option><option value="desc">${htmlText("Descending ↓")}</option></select><span class="filter-caption">${htmlText("Page size:")}</span><select id="qualityPageSize" title="${htmlText("Quality findings per page")}"><option value="50">50</option><option value="100" selected>100</option><option value="200">200</option></select><button id="qualityFirstPage" class="icon-only" title="${htmlText("First quality page")}">«</button><button id="qualityPrevPage" class="icon-only" title="${htmlText("Previous quality page")}">‹</button><span class="quality-page-info" id="qualityPageInfo">0 / 0</span><button id="qualityNextPage" class="icon-only" title="${htmlText("Next quality page")}">›</button><button id="qualityLastPage" class="icon-only" title="${htmlText("Last quality page")}">»</button></div></div>
 </div>
   <div class="filterbar">
-    <input class="grow" id="globalFilter" type="search" placeholder="Search source, translation, proposal, status, notes or id…">
-    <div class="quick-filters" title="Quick filters are OR-combined: a row is shown when it matches any selected category.">
-      <span class="filter-caption">Any:</span>
-      <label class="toggle"><input id="translatedOnly" type="checkbox"> Translated</label>
-      <label class="toggle"><input id="missingOnly" type="checkbox"> Missing</label>
-      <label class="toggle"><input id="reviewOnly" type="checkbox"> Review</label>
-      <label class="toggle"><input id="proposalOnly" type="checkbox"> Proposals</label>
-      <label class="toggle"><input id="draftOnly" type="checkbox"> Drafts</label>
-      <label class="toggle"><input id="placeholderErrorsOnly" type="checkbox"> Placeholder errors</label>
-      <label class="toggle"><input id="terminologyErrorsOnly" type="checkbox"> Terminology</label>
-      <label class="toggle"><input id="noStateOnly" type="checkbox"> No State</label>
-      <label class="toggle"><input id="qualityOnly" type="checkbox"> Quality</label>
+    <input class="grow" id="globalFilter" type="search" placeholder="${htmlText("Search source, translation, proposal, status, notes or id…")}">
+    <div class="quick-filters" title="${htmlText("Quick filters are OR-combined: a row is shown when it matches any selected category.")}">
+      <span class="filter-caption">${htmlText("Any:")}</span>
+      <label class="toggle"><input id="translatedOnly" type="checkbox"> ${htmlText("Translated")}</label>
+      <label class="toggle"><input id="missingOnly" type="checkbox"> ${htmlText("Missing")}</label>
+      <label class="toggle"><input id="reviewOnly" type="checkbox"> ${htmlText("Review")}</label>
+      <label class="toggle"><input id="proposalOnly" type="checkbox"> ${htmlText("Proposals")}</label>
+      <label class="toggle"><input id="draftOnly" type="checkbox"> ${htmlText("Drafts")}</label>
+      <label class="toggle"><input id="placeholderErrorsOnly" type="checkbox"> ${htmlText("Placeholder errors")}</label>
+      <label class="toggle"><input id="terminologyErrorsOnly" type="checkbox"> ${htmlText("Terminology")}</label>
+      <label class="toggle"><input id="noStateOnly" type="checkbox"> ${htmlText("No State")}</label>
+      <label class="toggle"><input id="qualityOnly" type="checkbox"> ${htmlText("Quality")}</label>
     </div>
-    <div class="pager" aria-label="Pagination">
-      <span class="filter-caption">Page size:</span>
-      <select id="pageSize" title="Entries per page">
+    <div class="pager" aria-label="${htmlText("Pagination")}">
+      <span class="filter-caption">${htmlText("Page size:")}</span>
+      <select id="pageSize" title="${htmlText("Entries per page")}">
         <option value="50">50</option>
         <option value="100" selected>100</option>
         <option value="200">200</option>
       </select>
-      <button id="firstPage" class="icon-only" title="First page">«</button>
-      <button id="prevPage" class="icon-only" title="Previous page">‹</button>
+      <button id="firstPage" class="icon-only" title="${htmlText("First page")}">«</button>
+      <button id="prevPage" class="icon-only" title="${htmlText("Previous page")}">‹</button>
       <span class="page-info" id="pageInfo">1 / 1</span>
-      <button id="nextPage" class="icon-only" title="Next page">›</button>
-      <button id="lastPage" class="icon-only" title="Last page">»</button>
+      <button id="nextPage" class="icon-only" title="${htmlText("Next page")}">›</button>
+      <button id="lastPage" class="icon-only" title="${htmlText("Last page")}">»</button>
     </div>
-    <button id="clearFilters" title="Clear all filters">Reset</button>
+    <button id="clearFilters" title="${htmlText("Clear all filters")}">${htmlText("Reset")}</button>
   </div>
 </div>
 <div class="editor-workspace" id="editorWorkspace">
-<div class="banner error dismissible" id="error"><span class="banner-message" id="errorMessage"></span><button class="banner-close" id="errorClose" type="button" title="Close error message" aria-label="Close error message">×</button></div>
+<div class="banner error dismissible" id="error"><span class="banner-message" id="errorMessage"></span><button class="banner-close" id="errorClose" type="button" title="${htmlText("Close error message")}" aria-label="${htmlText("Close error message")}">×</button></div>
 <div class="banner" id="warning"></div>
 <div class="translation-scroll" id="translationScroll">
 <table>
 <thead>
 <tr>
-  <th class="col-source"><button class="sort" data-sort="source">Source</button><input id="filter-source" placeholder="Filter source"></th>
-  <th class="col-translation"><button class="sort" data-sort="translation">Translation</button><input id="filter-translation" placeholder="Filter translation"></th>
-  <th class="col-transfer" title="Move proposal into Translation draft"></th>
-  <th class="col-proposal"><button class="sort" data-sort="proposal">Proposed translation</button><input id="filter-proposal" placeholder="Filter proposal"></th>
-  <th class="col-status"><button class="sort" data-sort="status">Status</button><input id="filter-status" placeholder="Filter status"></th>
-  <th class="col-notes"><button class="sort" data-sort="notes">Notes</button><input id="filter-notes" placeholder="Filter notes"></th>
-  <th class="col-actions">Actions</th>
+  <th class="col-source"><button class="sort" data-sort="source">${htmlText("Source")}</button><input id="filter-source" placeholder="${htmlText("Filter source")}"></th>
+  <th class="col-translation"><button class="sort" data-sort="translation">${htmlText("Translation")}</button><input id="filter-translation" placeholder="${htmlText("Filter translation")}"></th>
+  <th class="col-transfer" title="${htmlText("Move proposal into Translation draft")}"></th>
+  <th class="col-proposal"><button class="sort" data-sort="proposal">${htmlText("Proposed translation")}</button><input id="filter-proposal" placeholder="${htmlText("Filter proposal")}"></th>
+  <th class="col-status"><button class="sort" data-sort="status">${htmlText("Status")}</button><input id="filter-status" placeholder="${htmlText("Filter status")}"></th>
+  <th class="col-notes"><button class="sort" data-sort="notes">${htmlText("Notes")}</button><input id="filter-notes" placeholder="${htmlText("Filter notes")}"></th>
+  <th class="col-actions">${htmlText("Actions")}</th>
 </tr>
 </thead>
 <tbody id="rows"></tbody>
 </table>
 </div>
 </div>
-<div class="loading-overlay hidden" id="loadingOverlay" role="status" aria-live="polite" aria-label="Background activity">
+<div class="loading-overlay hidden" id="loadingOverlay" role="status" aria-live="polite" aria-label="${htmlText("Background activity")}">
   <div class="loading-card">
-    <div class="loading-title" id="loadingTitle">Loading XLIFF…</div>
+    <div class="loading-title" id="loadingTitle">${htmlText("Loading XLIFF…")}</div>
     <div class="loading-track"><div class="loading-bar" id="loadingBar"></div></div>
-    <div class="loading-count" id="loadingCount">0 / 0 units</div>
+    <div class="loading-count" id="loadingCount">${htmlText("0 / 0 units")}</div>
   </div>
 </div>
 <script nonce="${nonce}">
@@ -3412,6 +3457,7 @@ let model = { sourceLanguage:'', targetLanguage:'', readOnly:false, generated:fa
 // strings twice for tens of thousands of units.
 const rowStateByOrdinal = new Map();
 const dirtyOrdinals = new Set();
+const tryCandidateOrdinals = new Set();
 const proposalOrdinals = new Set();
 const appliedUndoOrdinals = new Set();
 const viewOverrideOrdinals = new Set();
@@ -3561,8 +3607,8 @@ function setLoading(stage, current, total, visible, itemLabel) {
   const safeCurrent = Math.min(safeTotal || Number(current) || 0, Math.max(0, Number(current) || 0));
   const percent = safeTotal > 0 ? Math.max(0, Math.min(100, Math.round((safeCurrent / safeTotal) * 100))) : 0;
   const label = itemLabel || 'units';
-  loadingTitle.textContent = stage || 'Loading XLIFF';
-  loadingCount.textContent = safeTotal > 0 ? (safeCurrent.toLocaleString() + ' / ' + safeTotal.toLocaleString() + ' ' + label) : 'Working…';
+  loadingTitle.textContent = stage || ${scriptString("Loading XLIFF")};
+  loadingCount.textContent = safeTotal > 0 ? (safeCurrent.toLocaleString() + ' / ' + safeTotal.toLocaleString() + ' ' + label) : ${scriptString("Working…")};
   loadingOverlay.classList.toggle('indeterminate', safeTotal <= 0);
   loadingBar.style.width = percent + '%';
   if (!visible) {
@@ -3608,7 +3654,7 @@ function refreshVisibleWhitespaceEditors() {
 function applyShowInvisiblesState() {
   document.body.classList.toggle('show-invisibles', showInvisibles);
   showInvisiblesButton.setAttribute('aria-pressed', showInvisibles ? 'true' : 'false');
-  showInvisiblesButton.title = showInvisibles ? 'Hide non-printing characters' : 'Show non-printing characters in Source, Translation, Proposed translation and Developer notes';
+  showInvisiblesButton.title = showInvisibles ? ${scriptString("Hide non-printing characters")} : ${scriptString("Show non-printing characters in Source, Translation, Proposed translation and Developer notes")};
   if (showInvisibles) refreshVisibleWhitespaceEditors();
 }
 function lower(value) { return String(value == null ? '' : value).toLocaleLowerCase(); }
@@ -3619,14 +3665,14 @@ function placeholderError(source, translation) {
   const actual = [...new Set(extractPlaceholders(translation).filter(function(value) { return /^%[0-9]+$/.test(value); }))];
   if (!expected.length && !actual.length) return '';
   if (expected.every(function(value) { return actual.includes(value); })) return '';
-  return 'Placeholder mismatch — expected: ' + (expected.length ? expected.join(', ') : '(none)') + '; translation: ' + (actual.length ? actual.join(', ') : '(none)');
+  return ${scriptString("Placeholder mismatch — expected: ")} + (expected.length ? expected.join(', ') : ${scriptString("(none)")}) + ${scriptString("; translation: ")} + (actual.length ? actual.join(', ') : ${scriptString("(none)")});
 }
 function terminologyError(row, translation) {
   const text = String(translation == null ? '' : translation);
   if (!text || !row.glossaryTerms || !row.glossaryTerms.length) return '';
   const missing = row.glossaryTerms.filter(function(term) { return !lower(text).includes(lower(term.translation)); });
   if (!missing.length) return '';
-  return missing.map(function(term) { return 'Terminology: “' + term.source + '” should use “' + term.translation + '”.'; }).join(String.fromCharCode(10));
+  return missing.map(function(term) { return ${scriptString("Terminology: “")} + term.source + ${scriptString("” should use “")} + term.translation + '”.'; }).join(String.fromCharCode(10));
 }
 function hasTranslationTerminologyError(row) {
   if (!Array.isArray(row.glossaryTerms)) return Boolean(row.translationTerminologyError);
@@ -3714,7 +3760,7 @@ function translationProvenanceInnerHtml(row) {
   const draftOrigin = row.translationDirty ? (row.translationDraftOrigin || 'Manual') : '';
   const savedOrigin = row.translationProvenanceLabel || '';
   const latest = draftOrigin || savedOrigin;
-  const badge = '<div class="provenance-line"><span data-role="translation-origin" data-ordinal="' + row.ordinal + '" class="origin' + (draftOrigin ? ' draft-origin' : '') + (latest ? '' : ' hidden') + '">' + esc((draftOrigin ? 'Draft · ' : '') + latest) + '</span></div>';
+  const badge = '<div class="provenance-line"><span data-role="translation-origin" data-ordinal="' + row.ordinal + '" class="origin' + (draftOrigin ? ' draft-origin' : '') + (latest ? '' : ' hidden') + '">' + esc((draftOrigin ? ${scriptString("Draft · ")} : '') + latest) + '</span></div>';
   const history = (row.provenanceHistoryLabels || []).filter(Boolean);
   const historyHtml = history.length ? '<details class="provenance-history"><summary>History ' + history.length + '</summary>' + history.slice().reverse().map(function(item) { return '<div>' + esc(item) + '</div>'; }).join('') + '</details>' : '';
   return badge + historyHtml;
@@ -3723,6 +3769,24 @@ function translationProvenanceHtml(row) {
   return '<div data-role="translation-provenance-block" data-ordinal="' + row.ordinal + '">' + translationProvenanceInnerHtml(row) + '</div>';
 }
 function fieldValue(row, field) { if (field === 'notes') return notesText(row); return String(row[field] == null ? '' : row[field]); }
+function tryTranslationCount() {
+  let count = tryCandidateOrdinals.size;
+  const staged = new Set(dirtyOrdinals);
+  proposalOrdinals.forEach(function(ordinal) { staged.add(ordinal); });
+  appliedUndoOrdinals.forEach(function(ordinal) { staged.add(ordinal); });
+  staged.forEach(function(ordinal) { if (tryCandidateOrdinals.has(ordinal)) count--; });
+  return Math.max(0, count);
+}
+function transferableProposalOrdinals() {
+  return Array.from(proposalOrdinals).filter(function(ordinal) {
+    if (dirtyOrdinals.has(ordinal)) return false;
+    const row = rowStateForStage(ordinal);
+    return !row.notTranslatable && (typeof row.source === 'string'
+      ? Boolean(row.proposal) && !placeholderError(row.source, row.proposal)
+      : row.proposalTransferable !== false);
+  });
+}
+function discardDraftCount() { return draftCount(); }
 function draftCount() { return dirtyOrdinals.size; }
 function stagedCount() {
   let count = dirtyOrdinals.size;
@@ -3825,7 +3889,7 @@ function statusOptions(row) {
   const current = row.status === 'missing' ? 'missing' : (row.rawState || '__none__');
   if (row.status === 'missing' && !values.includes('missing')) values.unshift('missing');
   return values.map(function(value) {
-    const label = value === '__none__' ? '(no state)' : value;
+    const label = value === '__none__' ? ${scriptString("(no state)")} : value;
     const selected = (value === current || (value === 'missing' && row.status === 'missing')) ? ' selected' : '';
     const disabled = value === 'missing' ? ' disabled' : '';
     return '<option value="' + esc(value) + '"' + selected + disabled + '>' + esc(label) + '</option>';
@@ -3834,7 +3898,7 @@ function statusOptions(row) {
 function noteHtml(row) {
   if (!row.notes || !row.notes.length) return '<span class="meta">—</span>';
   return row.notes.map(function(note) {
-    const from = note.from ? '<span class="note-from">' + esc(note.from) + ':</span> ' : '';
+    const from = note.from ? '<span class="note-from">' + esc(note.from === 'Developer' ? ${scriptString("Developer note")} : note.from) + ':</span> ' : '';
     const text = note.from === 'Developer' ? whitespaceStaticHtml(note.text) : esc(note.text);
     return '<div class="note">' + from + text + '</div>';
   }).join('');
@@ -3892,31 +3956,31 @@ function rowHtml(row) {
     ? '<div class="status-text">' + esc(row.notTranslatable ? 'translate=no' : row.status) + '</div>'
     : '<div class="status-stack"><select class="status-select" data-action="status" data-ordinal="' + row.ordinal + '"' + statusDisabled + '>' + statusOptions(row) + '</select></div>';
   const revertHidden = (row.translationDirty || row.appliedUndo) ? '' : ' hidden';
-  const draftLabelText = row.translationDirty ? 'staged draft' : (row.appliedUndo ? 'applied · unsaved' : 'staged draft');
-  const revertTitle = row.translationDirty ? 'Discard this Translation draft' : 'Undo this applied translation before the XLIFF is saved';
+  const draftLabelText = row.translationDirty ? ${scriptString("staged draft")} : (row.appliedUndo ? ${scriptString("applied · unsaved")} : ${scriptString("staged draft")});
+  const revertTitle = row.translationDirty ? ${scriptString("Move this Translation draft back to Proposal")} : ${scriptString("Undo this applied translation before the XLIFF is saved")};
   const acceptDisabled = disabled || !row.proposal || proposalErrorForRow || row.translationDirty || trying || tryAllBusy;
   return '<tr class="' + rowClass(row) + '" data-ordinal="' + row.ordinal + '">' +
     '<td><div class="source-text">' + whitespaceStaticHtml(row.source) + '</div><div class="unit-id" title="' + esc(row.id) + '">' + esc(row.id) + '</div>' + (row.generatorNote ? '<div class="generator-note" title="Xliff Generator">' + esc(row.generatorNote) + '</div>' : '') + '</td>' +
     '<td>' + whitespaceEditorHtml('translation', row.ordinal, row.translation, disabled) + maxWidth + translationPlaceholderHtml + translationTerminologyHtml + translationOrigin +
       '<div class="field-actions">' +
-      '<button data-action="acceptTranslation" data-ordinal="' + row.ordinal + '" class="' + ((row.canAcceptTranslation || row.translationDirty) ? '' : 'hidden') + '" title="' + esc(row.translationDirty ? 'Apply this Translation draft and set state to translated' : 'Accept the current saved translation and set state to translated') + '"' + (translationErrorForRow ? ' disabled' : '') + '>✓</button>' +
+      '<button data-action="acceptTranslation" data-ordinal="' + row.ordinal + '" class="' + ((row.canAcceptTranslation || row.translationDirty) ? '' : 'hidden') + '" title="' + esc(row.translationDirty ? ${scriptString("Apply this Translation draft and set state to translated")} : ${scriptString("Accept the current saved translation and set state to translated")}) + '"' + (translationErrorForRow ? ' disabled' : '') + '>✓</button>' +
       '<button data-action="revertTranslation" data-ordinal="' + row.ordinal + '" class="' + revertHidden + '" title="' + esc(revertTitle) + '">↶</button>' +
       '<span data-role="draft-label" data-ordinal="' + row.ordinal + '" class="draft-label' + revertHidden + '">' + esc(draftLabelText) + '</span></div></td>' +
-    '<td class="transfer-cell"><button class="transfer-button" data-action="accept" data-ordinal="' + row.ordinal + '" title="Move proposal into Translation draft; Apply Drafts writes it later"' + (acceptDisabled ? ' disabled' : '') + '>←</button><button class="transfer-button developer-transfer ' + (developerTranslationDiffers(row) ? '' : 'hidden') + '" data-action="useDeveloperTranslation" data-ordinal="' + row.ordinal + '" title="Use Developer Note translation as a draft" aria-label="Use Developer Note translation as a draft"' + (disabled ? ' disabled' : '') + '>↤</button></td>' +
+    '<td class="transfer-cell"><button class="transfer-button" data-action="accept" data-ordinal="' + row.ordinal + '" title="${htmlText("Move proposal into Translation draft; Apply Drafts writes it later")}"' + (acceptDisabled ? ' disabled' : '') + '>←</button><button class="transfer-button developer-transfer ' + (developerTranslationDiffers(row) ? '' : 'hidden') + '" data-action="useDeveloperTranslation" data-ordinal="' + row.ordinal + '" title="${htmlText("Use Developer Note translation as a draft")}" aria-label="${htmlText("Use Developer Note translation as a draft")}"' + (disabled ? ' disabled' : '') + '>↤</button></td>' +
     '<td>' + whitespaceEditorHtml('proposal', row.ordinal, row.proposal, disabled) + origin + proposalPlaceholderHtml + proposalTerminologyHtml + '</td>' +
-    '<td>' + status + (row.maxWidthExceeded ? '<div class="warn">maxwidth exceeded</div>' : '') + '</td>' +
+    '<td>' + status + (row.maxWidthExceeded ? '<div class="warn">${htmlText("maxwidth exceeded")}</div>' : '') + '</td>' +
     '<td class="notes">' + noteHtml(row) + (qualityInline ? '<div class="quality-inline">' + qualityInline + '</div>' : '') + '</td>' +
     '<td><div class="actions">' +
-      '<button class="wide" data-action="try" data-ordinal="' + row.ordinal + '" title="Stage this row: Developer comment / exact .lng / exact glossary → Translation draft; fuzzy / AI → Proposal draft. Staging metadata is persisted in the XLIFF, but target text/status are unchanged until Apply."' + (disabled || !row.missing || row.translationDirty || row.proposal || trying || statusBusy || tryAllBusy ? ' disabled' : '') + '>' + (trying ? '…' : '? Try') + '</button>' +
-      '<button data-action="ai" data-ordinal="' + row.ordinal + '" title="Create an AI Proposal draft only; nothing is written to the XLIFF"' + (disabled || row.translationDirty || row.proposal || busy || trying || statusBusy || tryAllBusy ? ' disabled' : '') + '>' + (busy ? '…' : 'AI') + '</button>' +
-      '<button data-action="search" data-ordinal="' + row.ordinal + '" title="Jump to the AL Label, Caption, ToolTip or other source definition">⌕</button>' +
-      '<button data-action="addGlossary" data-ordinal="' + row.ordinal + '" title="Add a terminology rule based on this row"' + (model.readOnly ? ' disabled' : '') + '>T+</button>' +
-      '<button data-action="openXliffSource" data-ordinal="' + row.ordinal + '" title="Open this trans-unit in the XLIFF source">&lt;/&gt;</button>' +
+      '<button class="wide" data-action="try" data-ordinal="' + row.ordinal + '" title="${htmlText("Stage this row: Developer comment / exact .lng / exact glossary → Translation draft; fuzzy / AI → Proposal draft. Staging metadata is persisted in the XLIFF, but target text/status are unchanged until Apply.")}"' + (disabled || !row.missing || row.translationDirty || row.proposal || trying || statusBusy || tryAllBusy ? ' disabled' : '') + '>' + (trying ? '…' : ${scriptString("? Try")}) + '</button>' +
+      '<button data-action="ai" data-ordinal="' + row.ordinal + '" title="${htmlText("Create an AI Proposal draft only; nothing is written to the XLIFF")}"' + (disabled || row.translationDirty || row.proposal || busy || trying || statusBusy || tryAllBusy ? ' disabled' : '') + '>' + (busy ? '…' : 'AI') + '</button>' +
+      '<button data-action="search" data-ordinal="' + row.ordinal + '" title="${htmlText("Jump to the AL Label, Caption, ToolTip or other source definition")}">⌕</button>' +
+      '<button data-action="addGlossary" data-ordinal="' + row.ordinal + '" title="${htmlText("Add a terminology rule based on this row")}"' + (model.readOnly ? ' disabled' : '') + '>T+</button>' +
+      '<button data-action="openXliffSource" data-ordinal="' + row.ordinal + '" title="${htmlText("Open this trans-unit in the XLIFF source")}">&lt;/&gt;</button>' +
     '</div></td></tr>';
 }
 function updateSortLabels() {
   document.querySelectorAll('.sort').forEach(function(button) {
-    const labels = {source:'Source',translation:'Translation',proposal:'Proposed translation',status:'Status',notes:'Notes'};
+    const labels = {source:${scriptString("Source")},translation:${scriptString("Translation")},proposal:${scriptString("Proposed translation")},status:${scriptString("Status")},notes:${scriptString("Notes")}};
     button.textContent = labels[button.dataset.sort] + (sortField === button.dataset.sort ? (sortDirection > 0 ? ' ↑' : ' ↓') : '');
   });
 }
@@ -3930,6 +3994,10 @@ function indexRowByOrdinal(ordinal) { return rowStateByOrdinal.get(Number(ordina
 function updateOrdinalMembership(row) {
   if (!row || !Number.isInteger(Number(row.ordinal))) return;
   const ordinal = Number(row.ordinal);
+  if (typeof row.missing === 'boolean') {
+    if (row.missing && !row.notTranslatable && (row.source === undefined || String(row.source).trim())) tryCandidateOrdinals.add(ordinal);
+    else tryCandidateOrdinals.delete(ordinal);
+  }
   if (row.translationDirty || row.hasTranslationDraft) dirtyOrdinals.add(ordinal); else dirtyOrdinals.delete(ordinal);
   if (row.proposal || row.hasProposal) proposalOrdinals.add(ordinal); else proposalOrdinals.delete(ordinal);
   if (row.appliedUndo) appliedUndoOrdinals.add(ordinal); else appliedUndoOrdinals.delete(ordinal);
@@ -3938,13 +4006,17 @@ function compactStateMarker(row) {
   if (!row || !Number.isInteger(Number(row.ordinal))) return undefined;
   const marker = { ordinal:Number(row.ordinal) };
   if (row.translationDirty || row.hasTranslationDraft) marker.hasTranslationDraft = true;
-  if (row.proposal || row.hasProposal) marker.hasProposal = true;
+  if (row.proposal || row.hasProposal) {
+    marker.hasProposal = true;
+    marker.proposalTransferable = !row.notTranslatable && (typeof row.source === 'string' ? !placeholderError(row.source, row.proposal) : row.proposalTransferable !== false);
+  }
   if (row.appliedUndo) marker.appliedUndo = true;
   return marker.hasTranslationDraft || marker.hasProposal || marker.appliedUndo ? marker : undefined;
 }
 function initializeRowStateIndex(entries) {
   rowStateByOrdinal.clear();
   dirtyOrdinals.clear();
+  tryCandidateOrdinals.clear();
   proposalOrdinals.clear();
   appliedUndoOrdinals.clear();
   viewOverrideOrdinals.clear();
@@ -3952,8 +4024,9 @@ function initializeRowStateIndex(entries) {
     if (!entry || !Number.isInteger(Number(entry.ordinal))) return;
     const ordinal = Number(entry.ordinal);
     const marker = { ordinal:ordinal };
+    if (entry.tryCandidate) tryCandidateOrdinals.add(ordinal);
     if (entry.hasTranslationDraft) { marker.hasTranslationDraft = true; dirtyOrdinals.add(ordinal); }
-    if (entry.hasProposal) { marker.hasProposal = true; proposalOrdinals.add(ordinal); }
+    if (entry.hasProposal) { marker.hasProposal = true; marker.proposalTransferable = entry.proposalTransferable !== false; proposalOrdinals.add(ordinal); }
     if (entry.appliedUndo) { marker.appliedUndo = true; appliedUndoOrdinals.add(ordinal); }
     rowStateByOrdinal.set(ordinal, marker);
   });
@@ -3978,6 +4051,7 @@ function viewOverrideFromRow(row) {
     translationDraftOrigin:row.translationDraftOrigin || '',
     translationDraftProvenance:row.translationDraftProvenance,
     proposal:row.proposal || '',
+    proposalTransferable:!row.notTranslatable && (typeof row.source === 'string' ? !placeholderError(row.source, row.proposal) : row.proposalTransferable !== false),
     proposalOrigin:row.proposalOrigin || '',
     proposalProvenance:row.proposalProvenance,
     status:row.status || '',
@@ -4216,14 +4290,14 @@ function jumpToOrdinal(ordinal, severity) {
 
   // The extension host owns filtering and sorting. It resolves the ordinal's
   // position in the filtered/sorted result and returns the containing page.
-  render({ loading:false, stage:'Opening translation unit', preserveScroll:false, jumpOrdinal:ordinal, jumpSeverity:normalizedSeverity });
+  render({ loading:false, stage:${scriptString("Opening translation unit")}, preserveScroll:false, jumpOrdinal:ordinal, jumpSeverity:normalizedSeverity });
   return true;
 }
 function setQualityExpanded(expanded) {
   const isExpanded = Boolean(expanded);
   qualityPanel.classList.toggle('collapsed', !isExpanded);
   qualityToggle.textContent = isExpanded ? '⌃' : '⌄';
-  qualityToggle.title = isExpanded ? 'Collapse quality results' : 'Expand quality results';
+  qualityToggle.title = isExpanded ? ${scriptString("Collapse quality results")} : ${scriptString("Expand quality results")};
   qualityToggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
 }
 function setQualityVisible(visible) {
@@ -4235,9 +4309,9 @@ function setQualityVisible(visible) {
 function showQualityPendingPanel(received, total) {
   const safeReceived = Math.max(0, Number(received) || 0);
   const safeTotal = Math.max(0, Number(total) || 0);
-  const suffix = safeTotal > 0 ? (' · receiving ' + Math.min(safeReceived, safeTotal).toLocaleString() + ' / ' + safeTotal.toLocaleString()) : '';
-  qualitySummary.textContent = 'Quality Check running…' + suffix;
-  qualityList.innerHTML = '<div class="quality-row"><div class="quality-severity info">…</div><div class="quality-code">running</div><div class="quality-message">Quality results are being calculated in the background. The editor remains usable.</div><div></div></div>';
+  const suffix = safeTotal > 0 ? (${scriptString(" · receiving ")} + Math.min(safeReceived, safeTotal).toLocaleString() + ' / ' + safeTotal.toLocaleString()) : '';
+  qualitySummary.textContent = ${scriptString("Quality Check running…")} + suffix;
+  qualityList.innerHTML = '<div class="quality-row"><div class="quality-severity info">…</div><div class="quality-code">running</div><div class="quality-message">${htmlText("Quality results are being calculated in the background. The editor remains usable.")}</div><div></div></div>';
   qualityPageInfo.textContent = '…';
   qualityFirstPageButton.disabled = true;
   qualityPrevPageButton.disabled = true;
@@ -4295,10 +4369,10 @@ function paintQualityPage(page) {
   const pageStart = page.start;
   const pageEnd = page.end;
   const pageItems = page.items || [];
-  const visibleRange = filteredCount ? ' · showing ' + (pageStart + 1) + '–' + pageEnd + ' of ' + filteredCount : '';
-  qualitySummary.textContent = summary.total + ' issue' + (summary.total === 1 ? '' : 's') + ' · ' + summary.errors + ' error · ' + summary.warnings + ' warning · ' + summary.infos + ' info · ' + ignoredSummary.total + ' ignored' + (projectIgnoredCount ? ' · ' + projectIgnoredCount + ' project' : '') + visibleRange + (includesDrafts ? ' · staged drafts included' : '');
-  qualityIgnoredButton.textContent = (showingIgnored ? 'Problems (' + summary.total + ')' : 'Ignored (' + ignoredSummary.total + ')');
-  qualityIgnoredButton.title = showingIgnored ? 'Show active Quality Check problems' : 'Show ignored Quality Check findings, including project-wide ignores';
+  const visibleRange = filteredCount ? ${scriptString(" · showing ")} + (pageStart + 1) + '–' + pageEnd + ${scriptString(" of ")} + filteredCount : '';
+  qualitySummary.textContent = summary.total + ${scriptString(" issue")} + (summary.total === 1 ? '' : 's') + ' · ' + summary.errors + ${scriptString(" error · ")} + summary.warnings + ${scriptString(" warning · ")} + summary.infos + ${scriptString(" info · ")} + ignoredSummary.total + ${scriptString(" ignored")} + (projectIgnoredCount ? ' · ' + projectIgnoredCount + ${scriptString(" project")} : '') + visibleRange + (includesDrafts ? ${scriptString(" · staged drafts included")} : '');
+  qualityIgnoredButton.textContent = (showingIgnored ? ${scriptString("Problems (")} + summary.total + ')' : ${scriptString("Ignored (")} + ignoredSummary.total + ')');
+  qualityIgnoredButton.title = showingIgnored ? ${scriptString("Show active Quality Check problems")} : ${scriptString("Show ignored Quality Check findings, including project-wide ignores")};
   qualityPageSizeSelect.value = String(qualityPageSize);
   qualityPageInfo.textContent = filteredCount ? (qualityPage + ' / ' + pageCount) : '0 / 0';
   qualityFirstPageButton.disabled = qualityPage <= 1 || !filteredCount;
@@ -4310,22 +4384,22 @@ function paintQualityPage(page) {
     const issueIndex = item.sourceIndex;
     const marker = issue.severity === 'error' ? 'E' : (issue.severity === 'info' ? 'I' : 'W');
     const source = issue.source ? '<div class="quality-source">' + esc(issue.source) + '</div>' : '';
-    const go = Number.isInteger(issue.ordinal) ? '<button data-quality-action="go" data-quality-ordinal="' + issue.ordinal + '" data-quality-severity="' + esc(issue.severity || '') + '" title="Show this translation unit">Go</button>' : '';
+    const go = Number.isInteger(issue.ordinal) ? '<button data-quality-action="go" data-quality-ordinal="' + issue.ordinal + '" data-quality-severity="' + esc(issue.severity || '') + '" title="${htmlText("Show this translation unit")}">${htmlText("Go")}</button>' : '';
     let qualityAction = '';
     const issueRef = ' data-quality-index="' + issueIndex + '" data-quality-code="' + esc(issue.code) + '"' + (Number.isInteger(issue.ordinal) ? ' data-quality-ordinal="' + issue.ordinal + '"' : '');
     if (!includesDrafts) {
-      if (showingIgnored && issue.ignoredBy === 'unit') qualityAction = '<span class="quality-ignore-actions"><button data-quality-action="restore"' + issueRef + ' title="Restore this per-translation Quality Check exception">Restore</button></span>';
-      else if (showingIgnored && issue.ignoredBy === 'glossary') qualityAction = '<span class="quality-code" title="This warning is suppressed by a matching glossary rule">Glossary</span>';
-      else if (showingIgnored && issue.ignoredBy === 'project') qualityAction = '<span class="quality-ignore-actions"><button class="quality-global-ignore" data-quality-action="projectRestore"' + issueRef + ' title="Restore this globally ignored Quality Check rule">' + projectQualityRestoreIcon() + '</button></span>';
+      if (showingIgnored && issue.ignoredBy === 'unit') qualityAction = '<span class="quality-ignore-actions"><button data-quality-action="restore"' + issueRef + ' title="${htmlText("Restore this per-translation Quality Check exception")}">${htmlText("Restore")}</button></span>';
+      else if (showingIgnored && issue.ignoredBy === 'glossary') qualityAction = '<span class="quality-code" title="${htmlText("This warning is suppressed by a matching glossary rule")}">${htmlText("Glossary")}</span>';
+      else if (showingIgnored && issue.ignoredBy === 'project') qualityAction = '<span class="quality-ignore-actions"><button class="quality-global-ignore" data-quality-action="projectRestore"' + issueRef + ' title="${htmlText("Restore this globally ignored Quality Check rule")}">' + projectQualityRestoreIcon() + '</button></span>';
       else if (!showingIgnored) {
-        const localIgnore = Number.isInteger(issue.ordinal) && issue.severity !== 'error' ? '<button class="quality-local-ignore" data-quality-action="ignore"' + issueRef + ' title="Ignore this warning/info only for the current translation unit">⊘</button>' : '';
-        const projectIgnore = '<button class="quality-global-ignore" data-quality-action="projectIgnore"' + issueRef + ' title="Ignore this Quality Check rule for the whole AL project">' + projectQualityIgnoreIcon() + '</button>';
+        const localIgnore = Number.isInteger(issue.ordinal) && issue.severity !== 'error' ? '<button class="quality-local-ignore" data-quality-action="ignore"' + issueRef + ' title="${htmlText("Ignore this warning/info only for the current translation unit")}">⊘</button>' : '';
+        const projectIgnore = '<button class="quality-global-ignore" data-quality-action="projectIgnore"' + issueRef + ' title="${htmlText("Ignore this Quality Check rule for the whole AL project")}">' + projectQualityIgnoreIcon() + '</button>';
         qualityAction = '<span class="quality-ignore-actions">' + localIgnore + projectIgnore + '</span>';
       }
     }
     const ignoredBy = showingIgnored && issue.ignoredBy ? '<div class="quality-source">ignored by ' + esc(issue.ignoredBy) + '</div>' : '';
     return '<div class="quality-row"><div class="quality-severity ' + esc(issue.severity) + '">' + marker + '</div><div><div class="quality-code">' + esc(issue.code) + '</div>' + source + ignoredBy + '</div><div class="quality-message">' + esc(issue.message) + '</div><div class="actions quality-actions">' + go + qualityAction + '</div></div>';
-  }).join('') : '<div class="quality-row"><div class="quality-severity info">✓</div><div class="quality-code">' + (severityFilterActive && page.totalCount ? 'filtered' : 'clean') + '</div><div class="quality-message">' + (severityFilterActive && page.totalCount ? 'No quality issues match the selected severity filters.' : (showingIgnored ? 'No ignored quality findings.' : 'No quality issues found.')) + '</div><div></div></div>';
+  }).join('') : '<div class="quality-row"><div class="quality-severity info">✓</div><div class="quality-code">' + (severityFilterActive && page.totalCount ? ${scriptString("filtered")} : ${scriptString("clean")}) + '</div><div class="quality-message">' + (severityFilterActive && page.totalCount ? ${scriptString("No quality issues match the selected severity filters.")} : (showingIgnored ? ${scriptString("No ignored quality findings.")} : ${scriptString("No quality issues found.")})) + '</div><div></div></div>';
   qualityList.scrollTop = previousScrollTop;
   persistPageState();
 }
@@ -4387,7 +4461,7 @@ function render(options) {
   pendingRenderOptions = null;
   const renderStartedAt = performance.now();
   const generation = ++renderGeneration;
-  const stage = options && options.stage ? options.stage : 'Loading page';
+  const stage = options && options.stage ? options.stage : ${scriptString("Loading page")};
   const loadingAllowed = !options || options.loading !== false;
   const preserveScroll = !options || options.preserveScroll !== false;
   const jumpOrdinal = options && Number.isInteger(options.jumpOrdinal) ? options.jumpOrdinal : null;
@@ -4479,7 +4553,7 @@ function renderViewPage(message) {
     return;
   }
 
-  setLoading('Rendering page ' + currentPage + ' / ' + state.pageCount, 0, state.pageRows.length, true, 'entries');
+  setLoading(${scriptString("Rendering page ")} + currentPage + ' / ' + state.pageCount, 0, state.pageRows.length, true, 'entries');
   rowsElement.innerHTML = '';
   let index = 0;
   function appendChunk() {
@@ -4487,7 +4561,7 @@ function renderViewPage(message) {
     const end = Math.min(index + RENDER_CHUNK_SIZE, state.pageRows.length);
     rowsElement.insertAdjacentHTML('beforeend', state.pageRows.slice(index, end).map(rowHtml).join(''));
     index = end;
-    setLoading('Rendering page ' + currentPage + ' / ' + state.pageCount, index, state.pageRows.length, true, 'entries');
+    setLoading(${scriptString("Rendering page ")} + currentPage + ' / ' + state.pageCount, index, state.pageRows.length, true, 'entries');
     if (index < state.pageRows.length) {
       requestAnimationFrame(appendChunk);
       return;
@@ -4510,21 +4584,26 @@ function updateSummary(pageState) {
   const terminologyErrorCount = Number(stats.terminologyErrors) || 0;
   const qualityCount = Number(stats.qualityIssues) || 0;
   const languageLabel = model.targetLanguage ? ((model.sourceLanguage || '?') + ' → ' + model.targetLanguage) : (model.sourceLanguage || 'XLIFF');
-  const rangeLabel = filteredCount ? ((state.start + 1) + '–' + state.end + ' of ' + filteredCount + ' filtered') : '0 filtered';
-  const qualityLabel = model.qualityPending ? 'quality pending…' : ('quality ' + qualityCount);
-  metaElement.textContent = languageLabel + ' · ' + rangeLabel + ' · ' + totalCount + ' total · page ' + (filteredCount ? currentPage + ' / ' + state.pageCount : '0 / 0') + ' · missing ' + (stats.missing || 0) + ' · review ' + (stats.review || 0) + ' · proposals ' + proposals + ' · translation drafts ' + drafts + ' · staged ' + staged + ' · errors ' + placeholderErrorCount + ' · terminology ' + terminologyErrorCount + ' · ' + qualityLabel + (model.readOnly ? ' · read-only' : '') + (model.dirty ? ' · unsaved' : '');
+  const rangeLabel = filteredCount ? ((state.start + 1) + '–' + state.end + ${scriptString(" of ")} + filteredCount + ${scriptString(" filtered")}) : ${scriptString("0 filtered")};
+  const qualityLabel = model.qualityPending ? ${scriptString("quality pending…")} : ('quality ' + qualityCount);
+  metaElement.textContent = languageLabel + ' · ' + rangeLabel + ' · ' + totalCount + ${scriptString(" total · page ")} + (filteredCount ? currentPage + ' / ' + state.pageCount : '0 / 0') + ${scriptString(" · missing ")} + (stats.missing || 0) + ${scriptString(" · review ")} + (stats.review || 0) + ${scriptString(" · proposals ")} + proposals + ${scriptString(" · translation drafts ")} + drafts + ${scriptString(" · staged ")} + staged + ${scriptString(" · errors ")} + placeholderErrorCount + ${scriptString(" · terminology ")} + terminologyErrorCount + ' · ' + qualityLabel + (model.readOnly ? ${scriptString(" · read-only")} : '') + (model.dirty ? ${scriptString(" · unsaved")} : '');
   saveFileButton.disabled = model.readOnly || !model.dirty;
   syncButton.disabled = model.readOnly || model.dirty || syncBusy || tryAllBusy || staged > 0 || model.syncStatus !== 'out-of-sync';
-  syncButton.title = model.dirty || staged > 0 ? 'Save changes before synchronizing' : (model.syncStatus === 'out-of-sync' ? 'Synchronize with the generator XLIFF' : 'Refresh to check for differences from the generator XLIFF');
-  tryGetButton.textContent = tryAllBusy ? 'Trying…' : ('? Try Translation' + ((stats.missing || 0) ? ' (' + stats.missing + ')' : ''));
-  tryGetButton.disabled = model.readOnly || syncBusy || tryAllBusy || staged > 0 || !(stats.missing || 0);
-  saveDraftsButton.textContent = (applyDraftsBusy ? '… Applying Drafts' : '✓ Apply Drafts') + (drafts ? ' (' + drafts + ')' : '');
+  syncButton.title = model.dirty || staged > 0 ? ${scriptString("Save changes before synchronizing")} : (model.syncStatus === 'out-of-sync' ? ${scriptString("Synchronize with the generator XLIFF")} : ${scriptString("Refresh to check for differences from the generator XLIFF")});
+  const tryCount = tryTranslationCount();
+  tryGetButton.textContent = tryAllBusy ? ${scriptString("Trying…")} : (${scriptString("? Try Translation")} + (' (' + tryCount + ')'));
+  tryGetButton.disabled = model.readOnly || syncBusy || tryAllBusy || staged > 0 || appliedUndoOrdinals.size > 0 || tryCount <= 0;
+  saveDraftsButton.textContent = (applyDraftsBusy ? ${scriptString("… Applying Drafts")} : ${scriptString("✓ Apply Drafts")}) + (drafts ? ' (' + drafts + ')' : '');
   saveDraftsButton.disabled = model.readOnly || drafts === 0 || applyDraftsBusy;
   const noStateCount = Number(stats.noState) || 0;
-  acceptAllNoStateButton.textContent = '✓ No State' + (noStateCount ? ' (' + noStateCount + ')' : '');
+  acceptAllNoStateButton.textContent = ${scriptString("✓ No State")} + (noStateCount ? ' (' + noStateCount + ')' : '');
   acceptAllNoStateButton.disabled = model.readOnly || syncBusy || tryAllBusy || staged > 0 || noStateCount === 0;
-  discardDraftsButton.disabled = staged === 0;
-  const acceptable = state.pageRows.some(function(row) { return row.proposal && !row.notTranslatable && !row.translationDirty && !placeholderError(row.source, row.proposal); });
+  const discardCount = discardDraftCount();
+  discardDraftsButton.textContent = ${scriptString("↶ Discard Drafts")} + ' (' + discardCount + ')';
+  discardDraftsButton.disabled = model.readOnly || drafts === 0 || applyDraftsBusy;
+  const proposalCount = transferableProposalOrdinals().length;
+  acceptVisibleButton.textContent = ${scriptString("← Proposals to Drafts")} + ' (' + proposalCount + ')';
+  const acceptable = proposalCount > 0;
   acceptVisibleButton.disabled = model.readOnly || tryAllBusy || !acceptable;
 }
 function updateVisibleRowControls() {
@@ -4572,12 +4651,12 @@ function updateRowControls(row) {
   const revertButton = rowsElement.querySelector('button[data-action="revertTranslation"][data-ordinal="' + row.ordinal + '"]');
   if (revertButton) {
     revertButton.classList.toggle('hidden', !dirty && !appliedUndo);
-    revertButton.title = dirty ? 'Discard this Translation draft' : 'Undo this applied translation before the XLIFF is saved';
+    revertButton.title = dirty ? ${scriptString("Move this Translation draft back to Proposal")} : ${scriptString("Undo this applied translation before the XLIFF is saved")};
   }
   const draftLabel = rowsElement.querySelector('[data-role="draft-label"][data-ordinal="' + row.ordinal + '"]');
   if (draftLabel) {
     draftLabel.classList.toggle('hidden', !dirty && !appliedUndo);
-    draftLabel.textContent = dirty ? 'staged draft' : (appliedUndo ? 'applied · unsaved' : 'staged draft');
+    draftLabel.textContent = dirty ? ${scriptString("staged draft")} : (appliedUndo ? ${scriptString("applied · unsaved")} : ${scriptString("staged draft")});
   }
   const statusSelect = rowsElement.querySelector('select[data-action="status"][data-ordinal="' + row.ordinal + '"]');
   if (statusSelect) statusSelect.disabled = dirty || appliedUndo || Boolean(row.proposal) || model.readOnly || row.notTranslatable || busyStatusRows.has(row.ordinal);
@@ -4598,7 +4677,7 @@ function updateRowControls(row) {
     acceptTranslationButton.classList.toggle('hidden', !canAcceptRow && !applying);
     acceptTranslationButton.disabled = applying || !canAcceptRow || Boolean(placeholderError(row.source, row.translation)) || model.readOnly || row.notTranslatable;
     acceptTranslationButton.textContent = applying ? '…' : '✓';
-    acceptTranslationButton.title = applying ? 'Applying this Translation draft…' : (dirty ? 'Apply this Translation draft and set state to translated' : 'Accept the current saved translation and set state to translated');
+    acceptTranslationButton.title = applying ? ${scriptString("Applying this Translation draft…")} : (dirty ? ${scriptString("Apply this Translation draft and set state to translated")} : ${scriptString("Accept the current saved translation and set state to translated")});
   }
   const provenanceBlock = rowsElement.querySelector('[data-role="translation-provenance-block"][data-ordinal="' + row.ordinal + '"]');
   if (provenanceBlock) provenanceBlock.innerHTML = translationProvenanceInnerHtml(row);
@@ -4622,7 +4701,7 @@ function useDeveloperTranslation(row) {
   row.translationDirty = true;
   row.translationEditRevision = ++stageRevisionCounter;
   row.translationDraftProvenance = draftProvenance('comment', row.translationProvenance);
-  row.translationDraftOrigin = model.provenanceEnabled ? 'Developer Note' : '';
+  row.translationDraftOrigin = model.provenanceEnabled ? ${scriptString("Developer Note")} : '';
   const editor = rowsElement.querySelector('textarea[data-action="translation"][data-ordinal="' + row.ordinal + '"]');
   if (editor) { editor.value = row.translation; updateWhitespaceOverlay(editor); }
   row.maxWidthExceeded = row.maxWidth != null && row.translation.length > row.maxWidth;
@@ -4630,28 +4709,30 @@ function useDeveloperTranslation(row) {
   persistStageNow(row, 'draft');
   updateRowControls(row);
 }
+function moveDraftsToProposals(rows) {
+  const items = rows.filter(function(row) { return row.translationDirty || row.hasTranslationDraft; }).map(function(row) {
+    cancelStagePersistence(row.ordinal);
+    const item = {ordinal:row.ordinal};
+    if (typeof row.source === 'string') item.source = row.source;
+    if (typeof row.translation === 'string') item.translation = row.translation;
+    else if (typeof row.translationDraft === 'string') item.translation = row.translationDraft;
+    if (row.translationDraftProvenance) item.provenance = row.translationDraftProvenance;
+    if (row.translationDraftOrigin) item.origin = row.translationDraftOrigin;
+    return item;
+  });
+  if (items.length) vscode.postMessage({ type:'draftsToProposals', items:items });
+}
 function revertRowDraft(row) {
-  cancelStagePersistence(row.ordinal);
-  const hadDraft = Boolean(row.translationDirty);
-  row.translation = row.savedTranslation;
-  row.translationDirty = false;
-  row.translationDraftProvenance = undefined;
-  row.translationDraftOrigin = '';
-  row.maxWidthExceeded = row.maxWidth != null && row.translation.length > row.maxWidth;
-  const editor = rowsElement.querySelector('textarea[data-action="translation"][data-ordinal="' + row.ordinal + '"]');
-  if (editor) { editor.value = row.translation; updateWhitespaceOverlay(editor); }
-  updateInlineValidation(row, 'translation', row.translation);
-  updateRowControls(row);
-  if (hadDraft) vscode.postMessage({ type:'clearStaged', ordinals:[row.ordinal] });
+  moveDraftsToProposals([row]);
 }
 function ensureNoDrafts(actionName) {
   flushSummaryStats();
   if (Number(model.stats && model.stats.appliedUndo) > 0) {
-    showError('Save or undo applied translations before ' + actionName + '.');
+    showError(${scriptString("Save or undo applied translations before ")} + actionName + '.');
     return false;
   }
   if (!stagedCount()) return true;
-  showError('Resolve staged items before ' + actionName + ': move proposals to drafts and apply them, or discard the staged items.');
+  showError(${scriptString("Resolve staged items before ")} + actionName + ${scriptString(": move proposals to drafts and apply them, or discard the staged items.")});
   return false;
 }
 
@@ -4720,7 +4801,7 @@ rowsElement.addEventListener('change', function(event) {
     captureScrollPosition();
     const row = rowByOrdinal(ordinal);
     if (row && row.translationDirty) {
-      showError('Save or discard the translation draft before changing status.');
+      showError(${scriptString("Save or discard the translation draft before changing status.")});
       event.target.value = row.rawState || '__none__';
       return;
     }
@@ -4802,7 +4883,7 @@ document.querySelectorAll('.sort').forEach(function(button) {
     const field = button.dataset.sort;
     if (sortField === field) sortDirection *= -1; else { sortField = field; sortDirection = 1; }
     currentPage = 1;
-    render({ loading:true, stage:'Sorting entries', preserveScroll:false });
+    render({ loading:true, stage:${scriptString("Sorting entries")}, preserveScroll:false });
   });
 });
 let filterRenderTimer = null;
@@ -4813,7 +4894,7 @@ function applyFilterRender() {
   }
   clearNavigationTarget();
   currentPage = 1;
-  render({ loading:true, stage:'Filtering entries', preserveScroll:false });
+  render({ loading:true, stage:${scriptString("Filtering entries")}, preserveScroll:false });
 }
 [globalFilter, translatedOnly, missingOnly, reviewOnly, proposalOnly, draftOnly, placeholderErrorsOnly, terminologyErrorsOnly, qualityOnly, noStateOnly].concat(Object.values(filters)).forEach(function(control) {
   control.addEventListener(control.type === 'checkbox' ? 'change' : 'input', function() {
@@ -4830,40 +4911,40 @@ document.getElementById('clearFilters').addEventListener('click', function() {
   globalFilter.value = ''; clearQuickFilters();
   Object.values(filters).forEach(function(control) { control.value = ''; });
   currentPage = 1;
-  render({ loading:true, stage:'Resetting filters', preserveScroll:false });
+  render({ loading:true, stage:${scriptString("Resetting filters")}, preserveScroll:false });
 });
 pageSizeSelect.addEventListener('change', function() {
   clearNavigationTarget();
   const requested = Number(pageSizeSelect.value);
   pageSize = [50,100,200].includes(requested) ? requested : 100;
   currentPage = 1;
-  render({ loading:true, stage:'Loading page', preserveScroll:false });
+  render({ loading:true, stage:${scriptString("Loading page")}, preserveScroll:false });
 });
 firstPageButton.addEventListener('click', function() {
   clearNavigationTarget();
   if (currentPage === 1) return;
   currentPage = 1;
-  render({ loading:true, stage:'Loading first page', preserveScroll:false });
+  render({ loading:true, stage:${scriptString("Loading first page")}, preserveScroll:false });
 });
 prevPageButton.addEventListener('click', function() {
   clearNavigationTarget();
   if (currentPage <= 1) return;
   currentPage--;
-  render({ loading:true, stage:'Loading previous page', preserveScroll:false });
+  render({ loading:true, stage:${scriptString("Loading previous page")}, preserveScroll:false });
 });
 nextPageButton.addEventListener('click', function() {
   clearNavigationTarget();
   const state = getPageState();
   if (currentPage >= state.pageCount) return;
   currentPage++;
-  render({ loading:true, stage:'Loading next page', preserveScroll:false });
+  render({ loading:true, stage:${scriptString("Loading next page")}, preserveScroll:false });
 });
 lastPageButton.addEventListener('click', function() {
   clearNavigationTarget();
   const state = getPageState();
   if (currentPage >= state.pageCount) return;
   currentPage = state.pageCount;
-  render({ loading:true, stage:'Loading last page', preserveScroll:false });
+  render({ loading:true, stage:${scriptString("Loading last page")}, preserveScroll:false });
 });
 function runQualityCheck() {
   const items = stagedRows().map(function(row) {
@@ -4987,7 +5068,8 @@ syncButton.addEventListener('click', function() {
   vscode.postMessage({ type:'synchronizeFile' });
 });
 tryGetButton.addEventListener('click', function() {
-  if (!ensureNoDrafts('trying translations')) return;
+  if (tryGetButton.disabled || tryTranslationCount() <= 0) return;
+  if (!ensureNoDrafts(${scriptString("trying translations")})) return;
   vscode.postMessage({ type:'tryFile' });
 });
 saveDraftsButton.addEventListener('click', function() {
@@ -4995,6 +5077,7 @@ saveDraftsButton.addEventListener('click', function() {
   const items = dirtyRows().map(function(row) {
     const item = {
       ordinal:row.ordinal,
+      revision:Number(row.translationEditRevision) || 0,
       provenance:row.translationDraftProvenance,
       origin:row.translationDraftOrigin
     };
@@ -5007,7 +5090,7 @@ saveDraftsButton.addEventListener('click', function() {
   applyDraftsOverlayVisible = items.length >= APPLY_DRAFTS_OVERLAY_THRESHOLD;
   updateSummary();
   if (applyDraftsOverlayVisible) {
-    setLoading('Applying drafts', 0, items.length, true, 'drafts');
+    setLoading(${scriptString("Applying drafts")}, 0, items.length, true, 'drafts');
     requestAnimationFrame(function() {
       vscode.postMessage({ type:'saveManyDrafts', items:items });
     });
@@ -5016,7 +5099,7 @@ saveDraftsButton.addEventListener('click', function() {
   }
 });
 acceptAllNoStateButton.addEventListener('click', function() {
-  if (!ensureNoDrafts('accepting all no-state translations')) return;
+  if (!ensureNoDrafts(${scriptString("accepting all no-state translations")})) return;
   vscode.postMessage({
     type:'acceptAllNoState',
     targetLanguage:model.targetLanguage,
@@ -5024,51 +5107,29 @@ acceptAllNoStateButton.addEventListener('click', function() {
   });
 });
 discardDraftsButton.addEventListener('click', function() {
-  cancelAllStagePersistence();
-  const stagedOrdinals = stagedRows().map(function(row) { return Number(row.ordinal); }).filter(Number.isInteger);
-  stagedOrdinals.forEach(function(ordinal) {
-    const row = pageRowCache.get(ordinal);
-    if (row) {
-      markSummaryRowTouched(row);
-      if (row.translationDirty) {
-        row.translation = row.savedTranslation;
-        row.translationDirty = false;
-        row.maxWidthExceeded = row.maxWidth != null && row.translation.length > row.maxWidth;
-      }
-      row.proposal = '';
-      row.proposalOrigin = '';
-      row.proposalProvenance = undefined;
-      row.translationDraftProvenance = undefined;
-      row.translationDraftOrigin = '';
-      syncIndexFromFullRow(row);
-    }
-    rowStateByOrdinal.delete(ordinal);
-    viewOverrideOrdinals.delete(ordinal);
-  });
-  dirtyOrdinals.clear();
-  proposalOrdinals.clear();
-  if (model.stats) {
-    model.stats.translationDrafts = 0;
-    model.stats.proposals = 0;
-    model.stats.staged = 0;
-  }
-  flushSummaryStats();
-  if (stagedOrdinals.length) vscode.postMessage({ type:'clearStaged', ordinals:stagedOrdinals });
-  render({ loading:stagedOrdinals.length >= APPLY_DRAFTS_OVERLAY_THRESHOLD });
+  if (discardDraftsButton.disabled) return;
+  moveDraftsToProposals(dirtyRows());
+  updateSummary();
 });
+
 document.getElementById('dashboard').addEventListener('click', function() { vscode.postMessage({ type:'openDashboard' }); });
 document.getElementById('glossary').addEventListener('click', function() { vscode.postMessage({ type:'openGlossary' }); });
 document.getElementById('refresh').addEventListener('click', function() { vscode.postMessage({ type:'refresh' }); });
 document.getElementById('openText').addEventListener('click', function() {
-  if (!ensureNoDrafts('opening the raw XML editor')) return;
+  if (!ensureNoDrafts(${scriptString("opening the raw XML editor")})) return;
   vscode.postMessage({ type:'openText' });
 });
 acceptVisibleButton.addEventListener('click', function() {
-  const items = ((lastPageState && lastPageState.pageRows) || []).filter(function(row) {
-    return row.proposal && !row.notTranslatable && !row.translationDirty && !placeholderError(row.source, row.proposal);
-  }).map(function(row) {
-    cancelStagePersistence(row.ordinal);
-    return { ordinal:row.ordinal, translation:row.proposal, provenance:row.proposalProvenance, origin:row.proposalOrigin };
+  if (acceptVisibleButton.disabled) return;
+  const items = transferableProposalOrdinals().map(function(ordinal) {
+    const row = rowStateForStage(ordinal);
+    cancelStagePersistence(ordinal);
+    const item = { ordinal:ordinal };
+    if (typeof row.proposal === 'string') item.translation = row.proposal;
+    if (typeof row.source === 'string') item.source = row.source;
+    if (row.proposalProvenance) item.provenance = row.proposalProvenance;
+    if (row.proposalOrigin) item.origin = row.proposalOrigin;
+    return item;
   });
   if (items.length) vscode.postMessage({ type:'acceptMany', items:items });
 });
@@ -5099,10 +5160,10 @@ window.addEventListener('message', function(event) {
     const incomingLoadId = Number(message.loadId) || 0;
     if (activeLoadId && incomingLoadId && incomingLoadId < activeLoadId) return;
     activeLoadId = incomingLoadId;
-    setLoading(message.stage || 'Loading XLIFF', message.current || 0, message.total || 0, true);
+    setLoading(message.stage || ${scriptString("Loading XLIFF")}, message.current || 0, message.total || 0, true);
   } else if (message.type === 'loadProgress') {
     if (activeLoadId && Number(message.loadId) !== activeLoadId) return;
-    setLoading(message.stage || 'Loading XLIFF', message.current || 0, message.total || 0, true);
+    setLoading(message.stage || ${scriptString("Loading XLIFF")}, message.current || 0, message.total || 0, true);
   } else if (message.type === 'loadCancelled') {
     const cancelledLoadId = Number(message.loadId) || 0;
     if (!cancelledLoadId || cancelledLoadId === activeLoadId) hideLoading();
@@ -5120,7 +5181,7 @@ window.addEventListener('message', function(event) {
     else if (dashboardFilter === 'translated') translatedOnly.checked = true;
     else if (dashboardFilter === 'quality') qualityOnly.checked = true;
     currentPage = 1;
-    render({ loading:true, stage:'Applying dashboard filter', preserveScroll:false });
+    render({ loading:true, stage:${scriptString("Applying dashboard filter")}, preserveScroll:false });
   } else if (message.type === 'document') {
     const documentPayloadStartedAt = performance.now();
     const incomingLoadId = Number(message.loadId) || 0;
@@ -5166,7 +5227,7 @@ window.addEventListener('message', function(event) {
     rowsElement.innerHTML = '';
     showError('');
     showWarning(message.warnings || []);
-    render({ loading:true, stage:'Loading page', preserveScroll:!Number.isInteger(pendingNavigationOrdinal), jumpOrdinal:pendingNavigationOrdinal });
+    render({ loading:true, stage:${scriptString("Loading page")}, preserveScroll:!Number.isInteger(pendingNavigationOrdinal), jumpOrdinal:pendingNavigationOrdinal });
     postWebviewPerformance('xlfEditor.webview.documentPayload', documentPayloadStartedAt, { compactStates:rowStateByOrdinal.size, overrides:viewOverrideOrdinals.size, fullRows:0, loadId:incomingLoadId }, 'process document payload');
   } else if (message.type === 'viewPage') {
     const requestId = Number(message.requestId) || 0;
@@ -5212,6 +5273,22 @@ window.addEventListener('message', function(event) {
     });
     if (membershipChanged && (missingOnly.checked || reviewOnly.checked || translatedOnly.checked)) render({ loading:false });
     else updateSummary();
+  } else if (message.type === 'draftsMovedToProposals') {
+    latestDocumentVersion = Math.max(latestDocumentVersion, Number(message.documentVersion) || 0);
+    (message.items || []).forEach(function(item) {
+      const ordinal = Number(item.ordinal);
+      const patch = {translation:item.savedTranslation, savedTranslation:item.savedTranslation,
+        translationDirty:false,hasTranslationDraft:false,translationDraft:undefined,
+        translationDraftProvenance:undefined,translationDraftOrigin:'',
+        proposal:item.translation,hasProposal:Boolean(item.translation),proposalProvenance:item.provenance,proposalOrigin:item.origin || '',
+        proposalTransferable:!item.notTranslatable && !placeholderError(item.source,item.translation),
+        missing:Boolean(item.missing),review:Boolean(item.review)};
+      const row = pageRowCache.get(ordinal);
+      if (row) { markSummaryRowTouched(row); Object.assign(row,patch); syncIndexFromFullRow(row); }
+      else mergePartialRowOverride(ordinal,patch);
+    });
+    render({loading:false});
+    updateSummary();
   } else if (message.type === 'stageTranslationDrafts') {
     (message.items || []).forEach(function(item) {
       const ordinal = Number(item.ordinal);
@@ -5313,7 +5390,7 @@ window.addEventListener('message', function(event) {
     const wasVisible = !qualityPanel.classList.contains('hidden');
     model.qualityPending = false;
     renderQualityReport({ ...message.report, documentVersion:Number(message.documentVersion) }, Boolean(message.includesDrafts), message.preserveVisibility ? wasVisible : true);
-    render({ loading:false, stage:'Applying quality results', preserveScroll:true });
+    render({ loading:false, stage:${scriptString("Applying quality results")}, preserveScroll:true });
   } else if (message.type === 'qualityPending') {
     model.qualityPending = Boolean(message.pending);
     updateSummary();
@@ -5323,7 +5400,7 @@ window.addEventListener('message', function(event) {
     applyDraftsBusy = true;
     applyDraftsOverlayVisible = Number(message.total) >= APPLY_DRAFTS_OVERLAY_THRESHOLD;
     if (applyDraftsOverlayVisible) {
-      setLoading(message.stage || 'Applying drafts', message.current || 0, message.total || 0, true, 'drafts');
+      setLoading(message.stage || ${scriptString("Applying drafts")}, message.current || 0, message.total || 0, true, 'drafts');
     }
     updateSummary();
   } else if (message.type === 'applyDraftsProgressDone') {
@@ -5342,7 +5419,7 @@ window.addEventListener('message', function(event) {
       applyDraftsOverlayVisible = false;
       updateSummary();
     }
-    showError(message.message || 'XLIFF editor error.');
+    showError(message.message || ${scriptString("XLIFF editor error.")});
   } else if (message.type === 'proposalUpdated') {
     const ordinal = Number(message.ordinal);
     const row = rowByOrdinal(ordinal);
@@ -5548,8 +5625,12 @@ window.addEventListener('message', function(event) {
         row.canAcceptTranslation = false;
         row.appliedUndo = Boolean(item.canUndoApply);
         updateInlineValidation(row, 'translation', row.translation);
+        syncIndexFromFullRow(row);
         updateRowControls(row);
       } else {
+        // Compact rows have no summary snapshot. Use the host's pre-apply
+        // classification so filtered-out targets update the global totals too.
+        applySummaryContributionDelta({missing:item.wasMissing ? 1 : 0, review:item.wasReview ? 1 : 0}, {missing:0,review:0});
         mergePartialRowOverride(ordinal, {
           translation:typeof item.translation === 'string' ? item.translation : undefined,
           savedTranslation:typeof item.translation === 'string' ? item.translation : undefined,
@@ -5749,7 +5830,7 @@ function getPlaceholderValidation(source, translation) {
     return {
         error: matches
             ? ''
-            : `Placeholder mismatch — expected: ${expected.length ? expected.join(', ') : '(none)'}; translation: ${actual.length ? actual.join(', ') : '(none)'}`,
+            : t("Placeholder mismatch — expected: {0}; translation: {1}", expected.length ? expected.join(', ') : t("(none)"), actual.length ? actual.join(', ') : t("(none)")),
         expected,
         actual
     };
@@ -5796,7 +5877,7 @@ async function findSiblingGxlf(uri, targetLanguage) {
 async function openXliffUnitSource(document, ordinal) {
     const location = findXliffUnitLocation(document.getText(), ordinal);
     if (!location) {
-        vscode.window.showWarningMessage(`${BRAND_NAME}: the selected trans-unit could not be located in the XLIFF source.`);
+        vscode.window.showWarningMessage(t("{0}: the selected trans-unit could not be located in the XLIFF source.", BRAND_NAME));
         return false;
     }
     const editor = await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false });
@@ -5809,7 +5890,7 @@ async function openXliffUnitSource(document, ordinal) {
 async function openAlSourceDefinition(xlfUri, unit, targetLanguage) {
     const projectRoot = await findAlProjectRoot(xlfUri);
     if (!projectRoot) {
-        vscode.window.showWarningMessage(`${BRAND_NAME}: no workspace/project root was found for this XLIFF.`);
+        vscode.window.showWarningMessage(t("{0}: no workspace/project root was found for this XLIFF.", BRAND_NAME));
         return false;
     }
 

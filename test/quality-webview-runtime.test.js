@@ -167,12 +167,14 @@ test('row Try stages Developer text with a working discard action, including exp
         assert.equal(vm.runInContext('draftCount()',ui.context),1);
         assert.match(vm.runInContext('rowHtml(row)',ui.context),/data-action="revertTranslation"[^>]*class=""/);
         vm.runInContext('revertRowDraft(row)',ui.context);
-        assert.equal(vm.runInContext('draftCount()',ui.context),0);
-        assert.equal(vm.runInContext('row.translation',ui.context),'');
-        const clear=ui.messages.findLast(message => message.type === 'clearStaged');
+        const clear=ui.messages.findLast(message => message.type === 'draftsToProposals');
         assert.ok(clear);
         await h.send(clear);
-        assert.equal(getStagedTranslation(parseXliff(h.document.getText()).units[0]),undefined);
+        ui.receive(structuredClone(h.last('draftsMovedToProposals')));
+        assert.equal(vm.runInContext('draftCount()',ui.context),0);
+        assert.equal(vm.runInContext('row.translation',ui.context),'');
+        assert.equal(getStagedTranslation(parseXliff(h.document.getText()).units[0]).kind,'proposal');
+        assert.equal(vm.runInContext('row.proposal',ui.context),'Hallo');
         assert.equal(vm.runInContext("prepareFullRowFromHost({ordinal:9,translation:'Hallo',translationDraft:'Hallo',hasTranslationDraft:true}).translationDirty",ui.context),true);
     } finally {h.close();}
 });
@@ -423,4 +425,95 @@ test('Quality sort selection changes the host query, resets page and preserves s
   vm.runInContext('requestQualityPage()',ui.context);
   assert.equal(ui.messages.findLast(m=>m.type==='requestQualityPage').sortColumn,'severity');
  } finally {h.close();}
+});
+
+test('proposal transfer and Apply cover 125 units with only 50 cached rows and an active filter', async()=>{
+ const {parseXliff,setStagedTranslations,getStagedTranslation}=require('../src/xliff');
+ const initial=generateLargeXliff(125,0);const parsed=parseXliff(initial);
+ const text=setStagedTranslations(initial,parsed.units.map(unit=>({ordinal:unit.ordinal,staged:{kind:'proposal',text:'Neu %1.',origin:'AI'}}))).text;
+ const h=await createEditorHarness({root:fs.mkdtempSync(path.join(os.tmpdir(),'xliff-all-pages-')),text});
+ try{
+ await h.send({type:'ready'});const ui=webviewContext(h.panel.webview.html);ui.receive(structuredClone(h.last('document')));
+ ui.context.visibleRows=parsed.units.slice(0,50).map(unit=>({ordinal:unit.ordinal,source:unit.source,translation:'',savedTranslation:'',proposal:'Neu %1.',proposalOrigin:'AI'}));
+ vm.runInContext('visibleRows.forEach(function(row){prepareFullRowFromHost(row);pageRowCache.set(row.ordinal,row);});proposalOnly.checked=true;globalFilter.value="Customer";lastPageState={pageRows:visibleRows};realUpdateSummary();',ui.context);
+ assert.equal(ui.element('acceptVisible').disabled,false);ui.element('acceptVisible').click();
+ const transfer=ui.messages.findLast(m=>m.type==='acceptMany');assert.equal(transfer.items.length,125);
+ await h.send(transfer);ui.receive(structuredClone(h.last('proposalsAcceptedAsDrafts')));
+ assert.equal(vm.runInContext('draftCount()',ui.context),125);
+ vm.runInContext('realUpdateSummary();',ui.context);assert.match(ui.element('saveDrafts').textContent,/125/);
+ vm.runInContext('requestAnimationFrame=function(callback){callback();};',ui.context);ui.element('saveDrafts').click();const apply=ui.messages.findLast(m=>m.type==='saveManyDrafts');assert.equal(apply.items.length,125);
+ await h.send(apply);ui.receive(structuredClone(h.last('draftsSaved')));
+ assert.equal(h.last('draftsSaved').items.length,125);assert.equal(vm.runInContext('draftCount()',ui.context),0);
+ const units=parseXliff(h.document.getText()).units;assert.ok(units.every(unit=>unit.target==='Neu %1.'&&!getStagedTranslation(unit)));
+ await h.send({type:'saveDocument',items:[]});await h.send({type:'ready'});assert.equal(h.last('document').rowStateIndex.length,0);
+ }finally{h.close();}
+});
+test('persisted drafts on unvisited pages are counted and applied through host fallback', async()=>{
+ const {parseXliff,setStagedTranslations}=require('../src/xliff');const initial=generateLargeXliff(125,0);
+ const text=setStagedTranslations(initial,parseXliff(initial).units.map(unit=>({ordinal:unit.ordinal,staged:{kind:'draft',text:'Neu %1.'}}))).text;
+ const h=await createEditorHarness({root:fs.mkdtempSync(path.join(os.tmpdir(),'xliff-persisted-pages-')),text});
+ try{await h.send({type:'ready'});const ui=webviewContext(h.panel.webview.html);ui.receive(structuredClone(h.last('document')));
+ assert.equal(vm.runInContext('draftCount()',ui.context),125);vm.runInContext('requestAnimationFrame=function(callback){callback();};',ui.context);ui.element('saveDrafts').click();const apply=ui.messages.findLast(m=>m.type==='saveManyDrafts');assert.equal(apply.items.length,125);
+ await h.send(apply);assert.equal(h.last('draftsSaved').items.length,125);assert.ok(parseXliff(h.document.getText()).units.every(unit=>unit.target==='Neu %1.'));
+ }finally{h.close();}
+});
+
+test('Try count excludes staged, protected and applied rows across pages and disables at zero', async()=>{
+ const {parseXliff,setStagedTranslations}=require('../src/xliff');let text='<xliff><file source-language="en-US" target-language="de-DE"><body>'+Array.from({length:125},(_,i)=>'<trans-unit id="'+i+'"'+(i===124?' translate="no"':'')+'><source>Customer '+i+' %1</source><target/></trans-unit>').join('')+'</body></file></xliff>';
+ text=setStagedTranslations(text,[{ordinal:0,staged:{kind:'draft',text:'Neu %1.'}},{ordinal:1,staged:{kind:'proposal',text:'Neu %1.'}}]).text;
+ const h=await createEditorHarness({root:fs.mkdtempSync(path.join(os.tmpdir(),'xliff-try-count-')),text});
+ try{await h.send({type:'ready'});const ui=webviewContext(h.panel.webview.html);ui.receive(structuredClone(h.last('document')));
+ assert.equal(vm.runInContext('tryTranslationCount()',ui.context),122);
+ vm.runInContext('realUpdateSummary();',ui.context);assert.match(ui.element('tryGet').textContent,/122/);
+ vm.runInContext('tryCandidateOrdinals.clear();dirtyOrdinals.clear();proposalOrdinals.clear();realUpdateSummary();',ui.context);
+ assert.match(ui.element('tryGet').textContent,/\(0\)/);assert.equal(ui.element('tryGet').disabled,true);
+ ui.element('tryGet').click();assert.equal(ui.messages.some(m=>m.type==='tryFile'),false);
+ vm.runInContext('tryCandidateOrdinals.add(123);realUpdateSummary();',ui.context);assert.equal(ui.element('tryGet').disabled,false);
+ }finally{h.close();}
+});
+test('toolbar Discard matches Apply availability and leaves applied unsaved targets unchanged',async()=>{
+ const {parseXliff}=require('../src/xliff');const h=await createEditorHarness({root:fs.mkdtempSync(path.join(os.tmpdir(),'xliff-discard-only-drafts-')),text:generateLargeXliff(3,0)});
+ try{await h.send({type:'ready'});const ui=webviewContext(h.panel.webview.html);ui.receive(structuredClone(h.last('document')));
+ await h.send({type:'saveManyDrafts',items:[{ordinal:2,translation:'Neu %1.'}]});ui.receive(structuredClone(h.last('draftsSaved')));
+ vm.runInContext('realUpdateSummary();',ui.context);assert.equal(ui.element('discardDrafts').disabled,true);assert.equal(ui.element('saveDrafts').disabled,true);
+ ui.element('discardDrafts').click();assert.equal(ui.messages.some(m=>m.type==='revertAppliedTranslation'),false);
+ assert.equal(parseXliff(h.document.getText()).units[2].target,'Neu %1.');
+ ui.receive({type:'stageTranslationDrafts',items:[{ordinal:0,translation:'Entwurf %1.'}]});
+ vm.runInContext('realUpdateSummary();',ui.context);assert.equal(ui.element('discardDrafts').disabled,false);assert.equal(ui.element('saveDrafts').disabled,false);assert.match(ui.element('discardDrafts').textContent,/\(1\)/);
+ vm.runInContext('applyDraftsBusy=true;realUpdateSummary();',ui.context);assert.equal(ui.element('discardDrafts').disabled,true);assert.equal(ui.element('saveDrafts').disabled,true);
+ vm.runInContext('applyDraftsBusy=false;realUpdateSummary();',ui.context);ui.element('discardDrafts').click();
+ assert.equal(ui.messages.some(m=>m.type==='revertAppliedTranslation'),false);const request=ui.messages.findLast(m=>m.type==='draftsToProposals');assert.equal(request.items.length,1);assert.equal(request.items[0].ordinal,0);
+ await h.send(request);assert.equal(parseXliff(h.document.getText()).units[2].target,'Neu %1.');
+ }finally{h.close();}
+});
+
+test('toolbar counts reflect valid proposals globally and only unapplied drafts',async()=>{
+ const {setStagedTranslations}=require('../src/xliff');let text='<xliff><file source-language="en-US" target-language="de-DE"><body>'+Array.from({length:5},(_,i)=>'<trans-unit id="'+i+'"'+(i===2?' translate="no"':'')+'><source>Customer '+i+' %1</source><target/></trans-unit>').join('')+'</body></file></xliff>';
+ text=setStagedTranslations(text,[{ordinal:0,staged:{kind:'proposal',text:'Neu %1'}},{ordinal:1,staged:{kind:'proposal',text:'Fehlt Platzhalter'}},{ordinal:2,staged:{kind:'proposal',text:'Neu %1'}},{ordinal:3,staged:{kind:'draft',text:'Entwurf %1'}}]).text;
+ const h=await createEditorHarness({root:fs.mkdtempSync(path.join(os.tmpdir(),'xliff-button-counts-')),text});
+ try{await h.send({type:'ready'});const ui=webviewContext(h.panel.webview.html);ui.receive(structuredClone(h.last('document')));
+ vm.runInContext('realUpdateSummary();',ui.context);assert.match(ui.element('acceptVisible').textContent,/\(1\)/);assert.match(ui.element('discardDrafts').textContent,/\(1\)/);
+ vm.runInContext('appliedUndoOrdinals.add(3);appliedUndoOrdinals.add(4);realUpdateSummary();',ui.context);assert.match(ui.element('discardDrafts').textContent,/\(1\)/);
+ ui.element('acceptVisible').click();const request=ui.messages.findLast(m=>m.type==='acceptMany');assert.equal(request.items.length,1);assert.equal(request.items[0].ordinal,0);
+ await h.send(request);ui.receive(structuredClone(h.last('proposalsAcceptedAsDrafts')));vm.runInContext('realUpdateSummary();',ui.context);
+ assert.match(ui.element('acceptVisible').textContent,/\(0\)/);assert.equal(ui.element('acceptVisible').disabled,true);assert.match(ui.element('discardDrafts').textContent,/\(2\)/);
+ vm.runInContext('dirtyOrdinals.clear();appliedUndoOrdinals.clear();realUpdateSummary();',ui.context);assert.match(ui.element('discardDrafts').textContent,/\(0\)/);assert.equal(ui.element('discardDrafts').disabled,true);
+ }finally{h.close();}
+});
+
+test('Discard resolves compact drafts on unvisited pages and acknowledges proposals with canonical targets',async()=>{
+ const {parseXliff,setStagedTranslations,getStagedTranslation}=require('../src/xliff');const original=generateLargeXliff(125,0);
+ const text=setStagedTranslations(original,parseXliff(original).units.map(unit=>({ordinal:unit.ordinal,staged:{kind:'draft',text:'Neu %1.',origin:'Memory'}}))).text;
+ const h=await createEditorHarness({root:fs.mkdtempSync(path.join(os.tmpdir(),'xliff-compact-discard-')),text});
+ try{await h.send({type:'ready'});const ui=webviewContext(h.panel.webview.html);ui.receive(structuredClone(h.last('document')));vm.runInContext('realUpdateSummary();',ui.context);ui.element('discardDrafts').click();
+ const request=ui.messages.findLast(m=>m.type==='draftsToProposals');assert.equal(request.items.length,125);assert.equal(request.items[0].translation,undefined);
+ await h.send(request);const ack=h.last('draftsMovedToProposals');assert.equal(ack.items.length,125);ui.receive(structuredClone(ack));
+ assert.equal(vm.runInContext('draftCount()',ui.context),0);assert.equal(vm.runInContext('transferableProposalOrdinals().length',ui.context),125);
+ assert.ok(parseXliff(h.document.getText()).units.every(unit=>getStagedTranslation(unit).kind==='proposal'));
+ assert.equal(vm.runInContext('rowStateForStage(1).savedTranslation',ui.context),parseXliff(original).units[1].target);
+ vm.runInContext('realUpdateSummary();',ui.context);ui.element('acceptVisible').click();await h.send(ui.messages.findLast(m=>m.type==='acceptMany'));ui.receive(structuredClone(h.last('proposalsAcceptedAsDrafts')));assert.equal(vm.runInContext('draftCount()',ui.context),125);
+ vm.runInContext('requestAnimationFrame=function(callback){callback();};',ui.context);ui.element('saveDrafts').click();await h.send(ui.messages.findLast(m=>m.type==='saveManyDrafts'));ui.receive(structuredClone(h.last('draftsSaved')));
+ assert.equal(vm.runInContext('model.stats.missing',ui.context),0);
+ assert.ok(parseXliff(h.document.getText()).units.every(unit=>unit.target==='Neu %1.'));
+ }finally{h.close();}
 });

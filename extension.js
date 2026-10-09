@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./src/localization');
 
 const vscode = require('vscode');
 const path = require('path');
@@ -109,7 +110,7 @@ async function openTranslationUnitFromHover(arg) {
         uri = undefined;
     }
     if (!uri || !uri.fsPath || !uri.fsPath.toLowerCase().endsWith('.xlf')) {
-        vscode.window.showWarningMessage(`${BRAND_NAME}: XLIFF target from hover is no longer available.`);
+        vscode.window.showWarningMessage(t("{0}: XLIFF target from hover is no longer available.", BRAND_NAME));
         return;
     }
     await XliffEditorProvider.openAtUnit(uri, String(value.unitId || ''), String(value.source || ''));
@@ -124,7 +125,7 @@ async function validateCurrentXliff(uri) {
         if (active && active.uri && active.uri.fsPath.toLowerCase().endsWith('.xlf')) target = active.uri;
     }
     if (!target || !target.fsPath || !target.fsPath.toLowerCase().endsWith('.xlf')) {
-        vscode.window.showInformationMessage(`${BRAND_NAME}: select an XLIFF file first.`);
+        vscode.window.showInformationMessage(t("{0}: select an XLIFF file first.", BRAND_NAME));
         return;
     }
     await XliffEditorProvider.openWithQuality(target);
@@ -137,7 +138,7 @@ async function openXliffEditor(uri) {
         if (active && active.uri && active.uri.fsPath.toLowerCase().endsWith('.xlf')) target = active.uri;
     }
     if (!target || !target.fsPath || !target.fsPath.toLowerCase().endsWith('.xlf')) {
-        vscode.window.showInformationMessage(`${BRAND_NAME}: select an XLIFF file first.`);
+        vscode.window.showInformationMessage(t("{0}: select an XLIFF file first.", BRAND_NAME));
         return;
     }
     await vscode.commands.executeCommand('vscode.openWith', target, XliffEditorProvider.viewType);
@@ -157,7 +158,7 @@ async function findTranslationFiles(singleUri) {
 async function buildMaps(singleUri) {
     const files = await findTranslationFiles(singleUri);
     if (!files.length) {
-        vscode.window.showInformationMessage('AL Xliff Studio: no translation XLIFF files found.');
+        vscode.window.showInformationMessage(t("AL Xliff Studio: no translation XLIFF files found."));
         return;
     }
 
@@ -173,7 +174,7 @@ async function buildMaps(singleUri) {
 
     await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: 'AL Xliff Studio: building language maps',
+        title: t("AL Xliff Studio: building language maps"),
         cancellable: true
     }, async (progress, token) => {
         for (let i = 0; i < files.length; i++) {
@@ -202,8 +203,8 @@ async function buildMaps(singleUri) {
         }
     });
 
-    const suffix = conflictCount ? ` ${conflictCount} conflicting duplicate source value(s) were detected.` : '';
-    vscode.window.showInformationMessage(`AL Xliff Studio: ${createdOrUpdated} map file(s) updated from ${pairCount} translated source pair(s).${suffix}`);
+    const suffix = conflictCount ? t(" {0} conflicting duplicate source value(s) were detected.", conflictCount) : '';
+    vscode.window.showInformationMessage(t("AL Xliff Studio: {0} map file(s) updated from {1} translated source pair(s).{2}", createdOrUpdated, pairCount, suffix));
     reportSkippedAndFailed(skippedFiles, failedFiles);
 }
 
@@ -211,7 +212,7 @@ async function buildMaps(singleUri) {
 async function fillMissingTranslations(singleUri) {
     const files = await findTranslationFiles(singleUri);
     if (!files.length) {
-        vscode.window.showInformationMessage('AL Xliff Studio: no translation XLIFF files found.');
+        vscode.window.showInformationMessage(t("AL Xliff Studio: no translation XLIFF files found."));
         return;
     }
 
@@ -222,9 +223,9 @@ async function fillMissingTranslations(singleUri) {
     const checkDuplicateGeneratorNotes = config.get('validation.checkDuplicateGeneratorNotes', true);
     const checkMaxWidth = config.get('validation.checkMaxWidth', true);
     const sourceChangeEnabled = config.get('sourceChangeDetection.enabled', true);
-    const provenanceEnabled = config.get('provenance.enabled', true) !== false;
+    const provenanceEnabled = config.get('provenance.enabled', false) !== false;
     const fuzzyOptions = {
-        enabled: config.get('fuzzyMatch.enabled', false),
+        enabled: config.get('fuzzyMatch.enabled', true),
         minimumQuality: config.get('fuzzyMatch.minimumQuality', 80)
     };
 
@@ -250,7 +251,7 @@ async function fillMissingTranslations(singleUri) {
     // are allowed to contribute to the AI prompt/count.
     const deterministicCancelled = await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: 'AL Xliff Studio: applying local translation sources',
+        title: t("AL Xliff Studio: applying local translation sources"),
         cancellable: true
     }, async (progress, token) => {
         for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
@@ -282,10 +283,10 @@ async function fillMissingTranslations(singleUri) {
                         const sourceParsed = parseXliff(await readText(siblingUri));
                         const sourceDuplicateIds = findDuplicateIds(sourceParsed);
                         if (sourceDuplicateIds.length) {
-                            throw new Error(`generator XLIFF contains duplicate trans-unit id(s): ${sourceDuplicateIds.join(', ')}`);
+                            throw new Error(t("generator XLIFF contains duplicate trans-unit id(s): {0}", sourceDuplicateIds.join(', ')));
                         }
                         if (normalizeLanguageCode(sourceParsed.sourceLanguage) !== normalizeLanguageCode(parsed.sourceLanguage)) {
-                            throw new Error(`generator source-language ${sourceParsed.sourceLanguage} does not match translation source-language ${parsed.sourceLanguage}`);
+                            throw new Error(t("generator source-language {0} does not match translation source-language {1}", sourceParsed.sourceLanguage, parsed.sourceLanguage));
                         }
                         const changedUnits = detectSourceChanges(parsed, sourceParsed);
                         if (changedUnits.size) {
@@ -340,7 +341,7 @@ async function fillMissingTranslations(singleUri) {
                         translationByOrdinal.set(unit.ordinal, {
                             text: resolved.translation,
                             review: true,
-                            note: `Fuzzy match (${resolved.quality}%) from "${resolved.matchedSource}". Please review.`,
+                            note: t("Fuzzy match ({0}%) from \"{1}\". Please review.", resolved.quality, resolved.matchedSource),
                             provenance: provenanceEnabled ? withAction(provenanceFromResolved(resolved, 'proposal'), 'staged-for-review') : undefined
                         });
                         fuzzyHits++;
@@ -425,10 +426,10 @@ async function fillMissingTranslations(singleUri) {
     // priority chain has actually reached AI for at least one remaining text.
     if (aiEnabled && aiPendingCount > 0) {
         const choice = await vscode.window.showWarningMessage(
-            `${aiPendingCount} open translation${aiPendingCount === 1 ? '' : 's'}`,
+            t("{0} open translation{1}", aiPendingCount, aiPendingCount === 1 ? '' : 's'),
             { modal: true },
-            'Use AI',
-            'Continue without AI'
+            t("Use AI"),
+            t("Continue without AI")
         );
         useAi = choice === 'Use AI';
     }
@@ -436,7 +437,7 @@ async function fillMissingTranslations(singleUri) {
     if (useAi) {
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: 'AL Xliff Studio: translating with AI',
+            title: t("AL Xliff Studio: translating with AI"),
             cancellable: true
         }, async (progress, token) => {
             let aiCompleted = 0;
@@ -504,9 +505,9 @@ async function fillMissingTranslations(singleUri) {
                     }
                 } catch (err) {
                     const choice = await vscode.window.showWarningMessage(
-                        `AL Xliff Studio: AI fallback failed for ${path.basename(work.uri.fsPath)}: ${formatError(err)}`,
-                        'Continue without AI',
-                        'Cancel'
+                        t("AL Xliff Studio: AI fallback failed for {0}: {1}", path.basename(work.uri.fsPath), formatError(err)),
+                        t("Continue without AI"),
+                        t("Cancel")
                     );
                     if (choice === 'Cancel') return;
                     // Stop additional AI work after a failure, while keeping all
@@ -536,19 +537,19 @@ async function fillMissingTranslations(singleUri) {
         ? ' AI was not used.'
         : '';
     const commentConflictText = commentConflictKeys.size
-        ? ` ${commentConflictKeys.size} source(s) had conflicting Developer comments; an exact trans-unit comment still took precedence where available.`
+        ? t(" {0} source(s) had conflicting Developer comments; an exact trans-unit comment still took precedence where available.", commentConflictKeys.size)
         : '';
     const mapConflictText = mapConflictKeys.size
-        ? ` ${mapConflictKeys.size} source(s) had context-specific translations and were therefore not collapsed into a single .lng entry.`
+        ? t(" {0} source(s) had context-specific translations and were therefore not collapsed into a single .lng entry.", mapConflictKeys.size)
         : '';
-    const fuzzyText = fuzzyHits ? `, ${fuzzyHits} fuzzy-match translation(s) flagged for review` : '';
-    const maxWidthText = maxWidthViolationCount ? ` ${maxWidthViolationCount} target(s) exceed their maxwidth.` : '';
+    const fuzzyText = fuzzyHits ? t(", {0} fuzzy-match translation(s) flagged for review", fuzzyHits) : '';
+    const maxWidthText = maxWidthViolationCount ? t(" {0} target(s) exceed their maxwidth.", maxWidthViolationCount) : '';
     const sourceChangedText = sourceSynchronizedCount
-        ? ` ${sourceSynchronizedCount} source text(s) synchronized from .g.xlf; ${sourceChangedTargetCount} existing target(s) flagged needs-l10n for review.`
+        ? t(" {0} source text(s) synchronized from .g.xlf; {1} existing target(s) flagged needs-l10n for review.", sourceSynchronizedCount, sourceChangedTargetCount)
         : '';
 
     vscode.window.showInformationMessage(
-        `AL Xliff Studio: ${changedFileKeys.size} XLIFF file(s) changed; ${commentHits} Developer-comment translation(s), ${mapHits} translation-memory hit(s), ${glossaryHits} glossary hit(s)${fuzzyText}, ${aiHits} AI translation(s), ${stillMissing} trans-unit(s) still missing.${aiStatus}${commentConflictText}${mapConflictText}${maxWidthText}${sourceChangedText}`
+        t("AL Xliff Studio: {0} XLIFF file(s) changed; {1} Developer-comment translation(s), {2} translation-memory hit(s), {3} glossary hit(s){4}, {5} AI translation(s), {6} trans-unit(s) still missing.{7}{8}{9}{10}{11}", changedFileKeys.size, commentHits, mapHits, glossaryHits, fuzzyText, aiHits, stillMissing, aiStatus, commentConflictText, mapConflictText, maxWidthText, sourceChangedText)
     );
     reportSkippedAndFailed(skippedFiles, failedFiles);
 }
@@ -590,7 +591,7 @@ function hasStructuralViolations(parsed, uri, skippedFiles, options = {}) {
 function formatWriteError(err) {
     const code = err && err.code;
     if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
-        return `${formatError(err)} (the file may be open or locked by another process)`;
+        return t("{0} (the file may be open or locked by another process)", formatError(err));
     }
     return formatError(err);
 }
@@ -604,13 +605,13 @@ function reportSkippedAndFailed(skippedFiles, failedFiles) {
             return `${path.basename(entry.uri.fsPath)} (${reasons.join('; ')})`;
         });
         vscode.window.showWarningMessage(
-            `AL Xliff Studio: ${skippedFiles.length} file(s) skipped due to structural issues: ${details.join(', ')}`
+            t("AL Xliff Studio: {0} file(s) skipped due to structural issues: {1}", skippedFiles.length, details.join(', '))
         );
     }
     if (failedFiles.length) {
         const details = failedFiles.map(entry => `${path.basename(entry.uri.fsPath)}: ${entry.message}`);
         vscode.window.showWarningMessage(
-            `AL Xliff Studio: ${failedFiles.length} file(s) could not be read or written: ${details.join(', ')}`
+            t("AL Xliff Studio: {0} file(s) could not be read or written: {1}", failedFiles.length, details.join(', '))
         );
     }
 }
@@ -618,20 +619,20 @@ function reportSkippedAndFailed(skippedFiles, failedFiles) {
 async function mergeTranslations() {
     const files = await findTranslationFiles();
     if (files.length < 2) {
-        vscode.window.showInformationMessage('AL Xliff Studio: need at least two translation XLIFF files to merge.');
+        vscode.window.showInformationMessage(t("AL Xliff Studio: need at least two translation XLIFF files to merge."));
         return;
     }
 
     const fromPick = await vscode.window.showQuickPick(
         files.map(uri => ({ label: path.basename(uri.fsPath), description: uri.fsPath, uri })),
-        { placeHolder: 'Merge FROM which XLIFF file?' }
+        { placeHolder: t("Merge FROM which XLIFF file?") }
     );
     if (!fromPick) return;
 
     const toPick = await vscode.window.showQuickPick(
         files.filter(uri => uri.toString() !== fromPick.uri.toString())
             .map(uri => ({ label: path.basename(uri.fsPath), description: uri.fsPath, uri })),
-        { placeHolder: 'Merge INTO which XLIFF file?' }
+        { placeHolder: t("Merge INTO which XLIFF file?") }
     );
     if (!toPick) return;
 
@@ -642,33 +643,33 @@ async function mergeTranslations() {
         const targetParsed = parseXliff(targetText);
         const languageCheck = validateMergeLanguages(targetParsed, sourceParsed);
         if (!languageCheck.compatible) {
-            vscode.window.showWarningMessage(`AL Xliff Studio: merge blocked. ${languageCheck.reason}`);
+            vscode.window.showWarningMessage(t("AL Xliff Studio: merge blocked. {0}", languageCheck.reason));
             return;
         }
 
         const modePick = await vscode.window.showQuickPick([
-            { label: 'Untranslated', description: 'Fill missing/new/needs-translation targets only', mode: 'untranslated' },
-            { label: 'Overwrite', description: 'Replace the target text of every matched trans-unit', mode: 'overwrite' },
-            { label: 'Add', description: 'Insert whole trans-units that exist in the source file but not in the target file', mode: 'add' }
-        ], { placeHolder: 'Merge mode' });
+            { label: t("Untranslated"), description: t("Fill missing/new/needs-translation targets only"), mode: 'untranslated' },
+            { label: t("Overwrite"), description: t("Replace the target text of every matched trans-unit"), mode: 'overwrite' },
+            { label: t("Add"), description: t("Insert whole trans-units that exist in the source file but not in the target file"), mode: 'add' }
+        ], { placeHolder: t("Merge mode") });
         if (!modePick) return;
 
         const mergeConfig = vscode.workspace.getConfiguration(CONFIG_SECTION);
         const result = mergeTranslationUnits(targetText, targetParsed, sourceParsed, modePick.mode, {
-            provenanceEnabled: mergeConfig.get('provenance.enabled', true) !== false,
+            provenanceEnabled: mergeConfig.get('provenance.enabled', false) !== false,
             sourceText
         });
         if (result.updatedCount === 0 && result.addedCount === 0) {
-            vscode.window.showInformationMessage('AL Xliff Studio: nothing to merge.');
+            vscode.window.showInformationMessage(t("AL Xliff Studio: nothing to merge."));
             return;
         }
 
         await writeText(toPick.uri, result.text);
         vscode.window.showInformationMessage(
-            `AL Xliff Studio: merged into ${path.basename(toPick.uri.fsPath)}: ${result.updatedCount} trans-unit(s) updated, ${result.addedCount} trans-unit(s) added.`
+            t("AL Xliff Studio: merged into {0}: {1} trans-unit(s) updated, {2} trans-unit(s) added.", path.basename(toPick.uri.fsPath), result.updatedCount, result.addedCount)
         );
     } catch (err) {
-        vscode.window.showErrorMessage(`AL Xliff Studio: merge failed: ${formatWriteError(err)}`);
+        vscode.window.showErrorMessage(t("AL Xliff Studio: merge failed: {0}", formatWriteError(err)));
     }
 }
 

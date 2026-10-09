@@ -94,7 +94,7 @@ test('AI cancellation stops remaining unique batches and placeholder rejection a
 
 test('permission dialog contains only the number of open AI translations and translation uses notification progress', () => {
     const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-    assert.match(extensionSource, /`\$\{aiPendingCount\} open translation/);
+    assert.match(extensionSource, /t\("\{0\} open translation\{1\}", aiPendingCount/);
     assert.doesNotMatch(extensionSource, /could not be resolved from Developer comments/);
     assert.match(extensionSource, /location:\s*vscode\.ProgressLocation\.Notification/);
     assert.match(extensionSource, /message:\s*`\$\{Math\.min\(aiCompleted, aiPendingCount\)\} \/ \$\{aiPendingCount\}`/);

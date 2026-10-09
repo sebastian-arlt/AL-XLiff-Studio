@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./localization');
 
 const vscode = require('vscode');
 const { CONFIG_SECTION, BRAND_NAME } = require('./identity');
@@ -33,7 +34,7 @@ function formatDebugEntry(entry) {
         header.push('--- PARSED RESPONSE ---', JSON.stringify(entry.parsed, null, 2), '');
     }
     if (entry && entry.error) {
-        header.push('--- ERROR ---', `${entry.error.name || 'Error'}: ${entry.error.message || ''}`);
+        header.push('--- ERROR ---', `${entry.error.name || t("Error")}: ${entry.error.message || ''}`);
         if (entry.error.stack) header.push(entry.error.stack);
         header.push('');
     }

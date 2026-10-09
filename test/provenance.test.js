@@ -126,5 +126,5 @@ test('provenance can be disabled for merge output and is exposed as a setting', 
     const setting = pkg.contributes.configuration.properties['alXliffStudio.provenance.enabled'];
     assert.ok(setting);
     assert.equal(setting.type, 'boolean');
-    assert.equal(setting.default, true);
+    assert.equal(setting.default, false);
 });
